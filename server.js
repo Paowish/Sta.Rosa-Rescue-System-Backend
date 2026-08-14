@@ -184,7 +184,7 @@ const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
   'http://192.168.1.36:5173',
-  'https://sta-rosa-rescue-system-frontend.vercel.app',
+  'https://sta-rosa-nueva-ecija-emergency-response.vercel.app',
   'https://sta-rosa-rescue-system-frontend-git-main-paowish.vercel.app',
   /\.vercel\.app$/,      // Matches ALL Vercel preview deployments
   /\.ngrok-free\.dev$/   // Matches all ngrok URLs
