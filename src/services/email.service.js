@@ -1,87 +1,53 @@
-// src/services/email.service.js
-const nodemailer = require('nodemailer');
+// src/services/email.service.js - BREVO VERSION
+// npm install @getbrevo/brevo
 
-// ✅ Helper function to get transporter with fresh credentials
-const getTransporter = () => {
-    const user = process.env.EMAIL_USER;
-    const pass = process.env.EMAIL_PASS;
+const brevo = require('@getbrevo/brevo');
 
-    console.log('📧 Creating email transporter with:', {
-        user: user || '❌ NOT SET',
-        pass: pass ? '✅ Set (length: ' + pass.length + ')' : '❌ NOT SET'
-    });
-
-    if (!user || !pass) {
-        console.error('❌ Email credentials missing! Check your .env file.');
-        throw new Error('Email credentials not configured properly.');
-    }
-
-    return nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-            user: user,
-            pass: pass
-        }
-    });
-};
-
-// ✅ Get FRONTEND_URL - ALWAYS use ngrok URL
+// ✅ Helper to get frontend URL
 const getFrontendUrl = () => {
-    // ✅ ALWAYS use ngrok URL for mobile testing
-    const ngrokUrl = 'https://hammily-unscaled-synthia.ngrok-free.dev';
-
-    // For development, try .env first, then fallback to ngrok
     const envUrl = process.env.FRONTEND_URL;
     if (envUrl) {
         console.log('🔗 Using FRONTEND_URL from .env:', envUrl);
         return envUrl;
     }
-
-    console.log('🔗 Using default ngrok URL:', ngrokUrl);
-    return ngrokUrl;
+    // Fallback to your Vercel URL
+    return 'https://sta-rosa-rescue-system-frontend.vercel.app';
 };
 
-// ✅ Send email function - creates fresh transporter each time
+// ✅ Send email using Brevo API
 const sendEmail = async (to, subject, html, text = '') => {
     try {
         console.log(`📧 Attempting to send email to: ${to}`);
 
-        const transporter = getTransporter();
+        const apiInstance = new brevo.TransactionalEmailsApi();
+        apiInstance.setApiKey(brevo.TransactionalEmailsApiApiKeys.apiKey, process.env.BREVO_API_KEY);
 
-        const mailOptions = {
-            from: `"Rescue Team" <${process.env.EMAIL_USER}>`,
-            to: to,
-            subject: subject,
-            html: html,
-            text: text || html.replace(/<[^>]*>/g, '')
+        const sendSmtpEmail = new brevo.SendSmtpEmail();
+        sendSmtpEmail.subject = subject;
+        sendSmtpEmail.htmlContent = html;
+        sendSmtpEmail.textContent = text || html.replace(/<[^>]*>/g, '');
+        sendSmtpEmail.sender = {
+            name: 'Santa Rosa Rescue Team',
+            email: process.env.EMAIL_USER || 'noreply@yourdomain.com'
         };
+        sendSmtpEmail.to = [{
+            email: to,
+            name: to.split('@')[0]
+        }];
 
-        const info = await transporter.sendMail(mailOptions);
-        console.log(`✅ Email sent successfully to ${to}:`, info.messageId);
-
-        return {
-            success: true,
-            messageId: info.messageId,
-            response: info.response
-        };
+        const data = await apiInstance.sendTransacEmail(sendSmtpEmail);
+        console.log(`✅ Email sent successfully to ${to}:`, data.messageId);
+        return { success: true, messageId: data.messageId };
     } catch (error) {
-        console.error('❌ Email send error:', error.message);
-        console.error('❌ Full error details:', error);
-
-        return {
-            success: false,
-            error: error.message,
-            code: error.code || 'UNKNOWN_ERROR'
-        };
+        console.error('❌ Email error:', error.message);
+        return { success: false, error: error.message };
     }
 };
 
-// ✅ Volunteer Accepted Email - FIXED FOR GMAIL MOBILE
+// ✅ Volunteer Accepted Email
 const sendVolunteerAccepted = async (email, firstName, lastName) => {
     const subject = '✅ Volunteer Application Accepted - Rescue Team';
     const frontendUrl = getFrontendUrl();
-
-    console.log('🔗 Frontend URL for email:', frontendUrl);
 
     const html = `
         <!DOCTYPE html>
@@ -103,31 +69,7 @@ const sendVolunteerAccepted = async (email, firstName, lastName) => {
                 .highlight-box ul { margin: 5px 0; padding-left: 20px; }
                 .highlight-box li { margin: 5px 0; }
                 .btn-container { text-align: center; margin: 30px 0; }
-                .btn { 
-                    background: #1f6b75; 
-                    color: #ffffff !important; 
-                    padding: 14px 35px; 
-                    text-decoration: none; 
-                    border-radius: 5px; 
-                    font-weight: bold; 
-                    font-size: 16px; 
-                    display: inline-block;
-                    background-color: #1f6b75;
-                    border-radius: 5px;
-                }
-                .link-box { 
-                    background: #f8f9fa; 
-                    padding: 15px; 
-                    border-radius: 8px; 
-                    margin: 20px 0; 
-                    border: 1px dashed #ccc;
-                    text-align: center;
-                }
-                .link-box a { 
-                    color: #1f6b75; 
-                    word-break: break-all;
-                    text-decoration: underline;
-                }
+                .btn { background: #1f6b75; color: #ffffff !important; padding: 14px 35px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block; }
             </style>
         </head>
         <body>
@@ -155,14 +97,9 @@ const sendVolunteerAccepted = async (email, firstName, lastName) => {
                             <li>Stay ready to respond to emergencies in your community!</li>
                         </ul>
                     </div>
-                    
-                    <!-- ✅ Button (works on desktop Gmail) -->
                     <div class="btn-container">
-                        <a href="${frontendUrl}/login" class="btn" style="background: #1f6b75; color: #ffffff; padding: 14px 35px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block;">
-                            Login to Your Account
-                        </a>
+                        <a href="${frontendUrl}/login" class="btn">Login to Your Account</a>
                     </div>
-                    
                 </div>
                 <div class="footer">
                     <p>© 2025 Rescue Team - Municipality of Santa Rosa</p>
@@ -175,10 +112,9 @@ const sendVolunteerAccepted = async (email, firstName, lastName) => {
     return await sendEmail(email, subject, html);
 };
 
-// ✅ Volunteer Rejected Email - FIXED FOR GMAIL MOBILE
+// ✅ Volunteer Rejected Email
 const sendVolunteerRejected = async (email, firstName, lastName, reason = '') => {
     const subject = '❌ Volunteer Application Update - Rescue Team';
-    const frontendUrl = getFrontendUrl();
 
     const html = `
         <!DOCTYPE html>
