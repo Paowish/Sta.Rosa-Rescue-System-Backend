@@ -506,6 +506,88 @@ const registrationUpload = multer({
 //   }
 // });
 
+
+
+// ==================== ADMIN USER MANAGEMENT ====================
+
+// ✅ Delete User
+app.delete('/api/admin/delete-user/:userId', protect, async (req, res) => {
+  try {
+    // Only allow admin to delete users
+    if (!['admin', 'dispatcher', 'responder'].includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const user = await User.findByIdAndDelete(req.params.userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Also delete their volunteer application if exists
+    await VolunteerApplication.findOneAndDelete({ userId: req.params.userId });
+
+    res.json({ success: true, message: 'User deleted successfully' });
+  } catch (error) {
+    console.error('❌ Delete user error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ Update User
+app.put('/api/admin/update-user/:userId', protect, async (req, res) => {
+  try {
+    // Only allow admin to update users
+    if (!['admin', 'dispatcher', 'responder'].includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const { firstName, lastName, email, phoneNumber, role, isApproved, password } = req.body;
+
+    const updateData = {
+      firstName,
+      lastName,
+      email,
+      phoneNumber,
+      role: role || 'volunteer',
+      isApproved: isApproved !== undefined ? isApproved : true
+    };
+
+    // Only hash password if provided
+    if (password && password.trim() !== '') {
+      updateData.password = await bcrypt.hash(password, 10);
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.params.userId,
+      updateData,
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Update volunteer application status if role is volunteer
+    if (role === 'volunteer') {
+      await VolunteerApplication.findOneAndUpdate(
+        { userId: req.params.userId },
+        { status: isApproved ? 'accepted' : 'pending' }
+      );
+    }
+
+    res.json({
+      success: true,
+      message: 'User updated successfully',
+      data: user
+    });
+  } catch (error) {
+    console.error('❌ Update user error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+
+
 // Volunteer declines dispatch
 app.put('/api/incidents/:id/decline', protect, async (req, res) => {
   try {
