@@ -1,7 +1,7 @@
-// src/services/email.service.js - BREVO VERSION
-// npm install @getbrevo/brevo
+// src/services/email.service.js - FIXED WORKING VERSION
+// Using Axios directly to avoid SDK issues
 
-const brevo = require('@getbrevo/brevo');
+const axios = require('axios');
 
 // ✅ Helper to get frontend URL
 const getFrontendUrl = () => {
@@ -10,36 +10,40 @@ const getFrontendUrl = () => {
         console.log('🔗 Using FRONTEND_URL from .env:', envUrl);
         return envUrl;
     }
-    // Fallback to your Vercel URL
     return 'https://sta-rosa-rescue-system-frontend.vercel.app';
 };
 
-// ✅ Send email using Brevo API
+// ✅ Send email using Brevo API directly with Axios
 const sendEmail = async (to, subject, html, text = '') => {
     try {
         console.log(`📧 Attempting to send email to: ${to}`);
 
-        const apiInstance = new brevo.TransactionalEmailsApi();
-        apiInstance.setApiKey(brevo.TransactionalEmailsApiApiKeys.apiKey, process.env.BREVO_API_KEY);
+        const response = await axios({
+            method: 'POST',
+            url: 'https://api.brevo.com/v3/smtp/email',
+            headers: {
+                'Content-Type': 'application/json',
+                'api-key': process.env.BREVO_API_KEY
+            },
+            data: {
+                sender: {
+                    name: 'Santa Rosa Rescue Team',
+                    email: process.env.EMAIL_USER || 'paolocarunia139@gmail.com'
+                },
+                to: [{ email: to }],
+                subject: subject,
+                htmlContent: html,
+                textContent: text || html.replace(/<[^>]*>/g, '')
+            }
+        });
 
-        const sendSmtpEmail = new brevo.SendSmtpEmail();
-        sendSmtpEmail.subject = subject;
-        sendSmtpEmail.htmlContent = html;
-        sendSmtpEmail.textContent = text || html.replace(/<[^>]*>/g, '');
-        sendSmtpEmail.sender = {
-            name: 'Santa Rosa Rescue Team',
-            email: process.env.EMAIL_USER || 'noreply@yourdomain.com'
-        };
-        sendSmtpEmail.to = [{
-            email: to,
-            name: to.split('@')[0]
-        }];
-
-        const data = await apiInstance.sendTransacEmail(sendSmtpEmail);
-        console.log(`✅ Email sent successfully to ${to}:`, data.messageId);
-        return { success: true, messageId: data.messageId };
+        console.log(`✅ Email sent successfully to ${to}:`, response.data.messageId);
+        return { success: true, messageId: response.data.messageId };
     } catch (error) {
         console.error('❌ Email error:', error.message);
+        if (error.response) {
+            console.error('❌ Brevo Response:', error.response.data);
+        }
         return { success: false, error: error.message };
     }
 };
