@@ -34,8 +34,12 @@ const userSchema = new mongoose.Schema({
     name: { type: String },
     type: { type: String },
     size: { type: Number },
-    url: { type: String } // <--- THIS WAS MISSING!
-  }]
+    url: { type: String }
+  }],
+
+  // ✅ CRITICAL FIX: ADD THESE TWO LINES FOR PASSWORD RESET TOKEN
+  resetPasswordToken: { type: String },
+  resetPasswordExpires: { type: Date }
 
 }, { timestamps: true });
 
