@@ -703,22 +703,21 @@ exports.resetPassword = async (req, res) => {
     const { newPassword } = req.body;
 
     try {
-        // Find user by token and check if token hasn't expired
         const user = await User.findOne({
             resetPasswordToken: token,
-            resetPasswordExpires: { $gt: Date.now() } // Token must be valid
+            resetPasswordExpires: { $gt: Date.now() }
         });
 
         if (!user) {
+            // ✅ This is what sends the "Invalid or expired token" error
             return res.status(400).json({ success: false, message: "Invalid or expired token." });
         }
 
-        // Hash the new password
         const salt = bcrypt.genSaltSync(10);
         const hashedPassword = bcrypt.hashSync(newPassword, salt);
 
         user.password = hashedPassword;
-        user.resetPasswordToken = undefined; // Clear the token after use
+        user.resetPasswordToken = undefined;
         user.resetPasswordExpires = undefined;
         await user.save();
 
