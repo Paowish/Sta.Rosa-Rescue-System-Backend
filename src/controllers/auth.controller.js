@@ -656,20 +656,21 @@ exports.forgotPassword = async (req, res) => {
         user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
         await user.save();
 
+        // 👇 CHANGED TO LOCALHOST FOR TESTING
         const resetUrl = `https://www.rescuesantarosagov.live/reset-password/${resetToken}`;
 
-        // ✅ Call Brevo's REST API directly using Node's native fetch (No require needed!)
+        // ✅ Call Brevo's REST API directly using Node's native fetch
         const response = await fetch('https://api.brevo.com/v3/smtp/email', {
             method: 'POST',
             headers: {
                 'accept': 'application/json',
-                'api-key': process.env.BREVO_API_KEY, // Your API Key
+                'api-key': process.env.BREVO_API_KEY,
                 'content-type': 'application/json'
             },
             body: JSON.stringify({
                 sender: {
                     name: "Sta. Rosa Rescue Team",
-                    email: "paolocarunia139@gmail.com" // Must match your Brevo login email
+                    email: "paolocarunia139@gmail.com"
                 },
                 to: [
                     {
