@@ -238,7 +238,6 @@ const User = require('./src/models/User.model');
 // IMPORT AUTH ROUTES (WITH VALIDATION) - ✅ UNCOMMENTED
 // ============================================
 const authRoutes = require('./src/routes/auth.routes');
-app.use('/api/auth', authRoutes);
 
 // ==================== INCIDENT SCHEMA - ✅ UNCOMMENTED ====================
 // const IncidentSchema = new mongoose.Schema({
