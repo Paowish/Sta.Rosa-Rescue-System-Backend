@@ -209,7 +209,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Guest-Session-Id', 'X-Guest-Email']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 // app.options('*', cors());
@@ -780,86 +780,6 @@ app.get('/api/incidents/:id/responder-location', protect, async (req, res) => {
 
 app.use('/api/auth', authRoutes);
 
-// ============================================================
-// ✅ GUEST OTP AUTHENTICATION ROUTES
-// ============================================================
-
-// Store OTPs temporarily in memory (Resets when server restarts)
-const otpStore = {};
-
-// ✅ 1. SEND OTP TO EMAIL
-app.post('/api/guest/send-otp', async (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ success: false, message: "Email is required" });
-
-  // Generate a 6-digit OTP
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
-
-  // Store OTP in memory (temporary)
-  otpStore[email] = { otp, expiresAt };
-
-  console.log(`📧 OTP for ${email}: ${otp}`); // 🔴 IMPORTANT: Logs OTP to console for testing
-
-  try {
-    // Send email using Brevo API (Reusing your existing fetch logic)
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'accept': 'application/json',
-        'api-key': process.env.BREVO_API_KEY,
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        sender: {
-          name: "Sta. Rosa Rescue Team",
-          email: "paolocarunia139@gmail.com"
-        },
-        to: [{ email: email }],
-        subject: "Your Guest Access Code",
-        textContent: `Your secure access code is: ${otp}. This code expires in 5 minutes.`
-      })
-    });
-
-    if (!response.ok) {
-      console.error("Brevo email error");
-      return res.status(500).json({ success: false, message: "Failed to send email" });
-    }
-
-    res.json({ success: true, message: "OTP sent to your email." });
-  } catch (error) {
-    console.error("OTP Send Error:", error);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-});
-
-// ✅ 2. VERIFY OTP AND ISSUE GUEST SESSION ID
-app.post('/api/guest/verify-otp', async (req, res) => {
-  const { email, otp } = req.body;
-  if (!email || !otp) return res.status(400).json({ success: false, message: "Email and OTP required" });
-
-  const record = otpStore[email];
-  if (!record) return res.status(400).json({ success: false, message: "No OTP requested for this email." });
-  if (Date.now() > record.expiresAt) {
-    delete otpStore[email];
-    return res.status(400).json({ success: false, message: "OTP has expired." });
-  }
-  if (record.otp !== otp) return res.status(400).json({ success: false, message: "Invalid OTP." });
-
-  // ✅ OTP is valid! Generate a unique Guest Session ID
-  const guestSessionId = `GUEST-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-  // Clear the OTP from memory
-  delete otpStore[email];
-
-  // Return the Session ID to the frontend
-  res.json({
-    success: true,
-    message: "Access granted.",
-    guestSessionId: guestSessionId
-  });
-});
-
 // In your server.js or routes file
 app.get('/api/users/responders', protect, async (req, res) => {
   try {
@@ -1072,8 +992,7 @@ app.post('/api/incidents', incidentUpload.single('photo'), async (req, res) => {
       victimsAffected: parseInt(req.body.victimsAffected) || 0,
       image: imageUrl,
       status: 'Pending',
-      isGuest: isGuest, // ✅ CRITICAL: This marks it as a Guest report!
-      otpEmail: req.body.otpEmail || null,
+      isGuest: isGuest // ✅ CRITICAL: This marks it as a Guest report!
     };
 
     console.log("📝 Incident data:", JSON.stringify(incidentData, null, 2));
@@ -1472,19 +1391,9 @@ app.get('/api/incidents', async (req, res) => {
         incidents = await Incident.find({}).sort({ createdAt: -1 });
       }
     } else {
-      // 🔵 GUEST LOGIC (Strict Email Isolation)
-      const guestEmail = req.headers['x-guest-email'];
-
-      console.log(`👤 Guest Fetch - Email: ${guestEmail || 'None'}`);
-
-      if (guestEmail) {
-        // ✅ STRICT FILTER: Only return reports where otpEmail matches
-        incidents = await Incident.find({ otpEmail: guestEmail }).sort({ createdAt: -1 });
-      } else {
-        // ❌ No email, return empty (Security)
-        console.log("🚫 Unauthorized guest access (No email header)");
-        incidents = [];
-      }
+      // 🔵 GUEST LOGIC: Only show guest reports
+      console.log("👤 Guest loading reports...");
+      incidents = await Incident.find({}).sort({ createdAt: -1 });
     }
 
     res.json({ success: true, data: incidents });
