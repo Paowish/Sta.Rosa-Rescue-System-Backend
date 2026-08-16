@@ -901,6 +901,7 @@ app.post('/api/auth/upload-profile-image', protect, profileUpload.single('profil
 
 // ==================== INCIDENT ROUTES ====================
 
+// ==================== INCIDENT ROUTES ====================
 // ✅ Cloudinary Storage for incident images
 const cloudinaryStorage = new CloudinaryStorage({
   cloudinary: cloudinary,
@@ -916,20 +917,49 @@ const incidentUpload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }
 });
 
-// server.js - Update your incident POST route
-app.post('/api/incidents', protect, incidentUpload.single('photo'), async (req, res) => {
+// ✅ UPDATED POST ROUTE: Handles both Guests and Logged-in Users
+app.post('/api/incidents', incidentUpload.single('photo'), async (req, res) => {
   try {
     console.log("🔵 ===== INCIDENT POST START =====");
-    console.log("🔵 User ID:", req.user?.id);
-    console.log("🔵 Has file:", !!req.file);
 
-    let imageUrl = null;
-    if (req.file) {
-      imageUrl = req.file.path;
-      console.log("📸 Cloudinary URL:", imageUrl);
+    // 1. Detect if it's a Guest or Logged-in User
+    const token = req.headers.authorization?.split(' ')[1];
+    let user = null;
+    let isGuest = false; // Default to false
+
+    // ✅ If there is a token, try to decode it
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'mysecretkey');
+        user = await User.findById(decoded.id).select('-password');
+      } catch (e) {
+        // Token invalid, keep user as null
+      }
     }
 
-    // Parse location
+    // ✅ If no user was found (Guest), set isGuest to true!
+    if (!user) {
+      isGuest = true;
+    }
+
+    console.log("🔵 Is Guest:", isGuest);
+    console.log("🔵 Has file:", !!req.file);
+
+    // 2. Handle Image Upload
+    let imageUrl = null;
+    if (req.file) {
+      imageUrl = req.file.path; // Cloudinary URL
+      console.log("📸 Cloudinary URL:", imageUrl);
+    } else if (req.body.image && req.body.image.startsWith('data:image')) {
+      // Handle Base64 string if guest sent it differently
+      const result = await cloudinary.uploader.upload(req.body.image, {
+        folder: 'incidents'
+      });
+      imageUrl = result.secure_url;
+      console.log("📸 Base64 uploaded to Cloudinary:", imageUrl);
+    }
+
+    // 3. Parse location
     let location = req.body.location;
     if (typeof location === 'string') {
       try {
@@ -938,64 +968,63 @@ app.post('/api/incidents', protect, incidentUpload.single('photo'), async (req, 
         location = { address: location };
       }
     }
+    if (!location || typeof location !== 'object') location = { address: 'Unknown location' };
+    if (!location.address) location.address = 'Unknown location';
+    if (!location.coordinates) location.coordinates = { latitude: 0, longitude: 0 };
 
-    if (!location || typeof location !== 'object') {
-      location = { address: 'Unknown location' };
-    }
-    if (!location.address) {
-      location.address = 'Unknown location';
-    }
-    if (!location.coordinates) {
-      location.coordinates = { latitude: 0, longitude: 0 };
-    }
-
-    // Generate incident ID
+    // 4. Generate incident ID
     const year = new Date().getFullYear();
     const timestamp = Date.now().toString().slice(-6);
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
     const incidentId = `RES-${year}-${timestamp}${random}`;
     console.log(`✅ Generated incident ID: ${incidentId}`);
 
-    // Build incident data
+    // 5. Build incident data
     const incidentData = {
       incidentId: incidentId,
       type: req.body.type || 'Other',
       description: req.body.description || '',
       location: location,
       severity: req.body.severity || 'Medium',
-      reportedBy: req.user.id,
+      reportedBy: user ? user._id : null, // Set to null for guests
       reporterNumber: req.body.reporterNumber || '',
-      reporterName: req.body.reporterName || 'Anonymous',
+      reporterName: req.body.reporterName || 'Guest User',
       victimsAffected: parseInt(req.body.victimsAffected) || 0,
       image: imageUrl,
-      status: 'Pending'
+      status: 'Pending',
+      isGuest: isGuest // ✅ CRITICAL: This marks it as a Guest report!
     };
 
     console.log("📝 Incident data:", JSON.stringify(incidentData, null, 2));
 
-    // Create incident
+    // 6. Create incident
     const incident = await Incident.create(incidentData);
     console.log("✅ Incident created with ID:", incident.incidentId);
 
-    // ✅ Send notifications in the background (don't await)
-    // This way if notifications fail, the incident is still created
+    // 7. If there's a real user, send them a notification
+    if (user) {
+      Promise.resolve().then(async () => {
+        try {
+          await createNotification(
+            user._id,
+            'incident_update',
+            'Incident Reported',
+            `Your incident ${incident.incidentId} has been reported successfully.`,
+            { incidentId: incident._id, status: incident.status }
+          );
+        } catch (notifError) {
+          console.error('❌ Notification error:', notifError.message);
+        }
+      });
+    }
+
+    // 8. Notify Responders (Always, even for Guests)
     Promise.resolve().then(async () => {
       try {
-        // Notify reporter
-        await createNotification(
-          req.user.id,
-          'incident_update',
-          'Incident Reported',
-          `Your incident ${incident.incidentId} has been reported successfully.`,
-          { incidentId: incident._id, status: incident.status }
-        );
-
-        // Notify responders
         const responders = await User.find({
           role: { $in: ['admin', 'dispatcher', 'responder'] },
           isActive: true
         });
-
         console.log(`📢 Sending notifications to ${responders.length} responders`);
 
         for (const responder of responders) {
@@ -1014,11 +1043,10 @@ app.post('/api/incidents', protect, incidentUpload.single('photo'), async (req, 
         }
       } catch (notifError) {
         console.error('❌ Background notification error:', notifError.message);
-        // Don't fail the request
       }
     });
 
-    // ✅ Send response immediately
+    // 9. Send response immediately
     res.status(201).json({
       success: true,
       data: {
@@ -1333,60 +1361,42 @@ app.get('/api/volunteers/available', protect, async (req, res) => {
   }
 });
 
-// server.js - Update the Get Incidents route
-// server.js - Get Incidents route with proper filtering for nested assignedTo
-app.get('/api/incidents', protect, async (req, res) => {
+// ✅ UPDATED: Get Incidents - Allows Guests WITHOUT Token
+app.get('/api/incidents', async (req, res) => {
   try {
     let incidents;
-    const userId = req.user.id;
-    const userRole = req.user.role;
+    const token = req.headers.authorization?.split(' ')[1];
+    let user = null;
 
-    console.log(`🔍 Getting incidents for ${userRole} (${userId})`);
-
-    if (userRole === 'civilian') {
-      // Civilians: only see their own reported incidents
-      incidents = await Incident.find({ reportedBy: userId })
-        .populate('reportedBy', 'firstName lastName email')
-        .sort({ createdAt: -1 });
-    } else if (userRole === 'volunteer') {
-      // ✅ Volunteers: query the nested assignedTo.responder field
-      incidents = await Incident.find({
-        'assignedTo.responder': userId
-      })
-        .populate('reportedBy', 'firstName lastName email')
-        .populate('assignedTo.responder', 'firstName lastName email')
-        .sort({ createdAt: -1 });
-
-      console.log(`📋 Found ${incidents.length} incidents assigned to volunteer ${userId}`);
-    } else if (['admin', 'dispatcher', 'responder'].includes(userRole)) {
-      // Rescue team: see all incidents
-      incidents = await Incident.find({
-        $and: [
-          { incidentId: { $exists: true, $ne: null } },
-          { type: { $exists: true, $ne: null } }
-        ]
-      })
-        .populate('reportedBy', 'firstName lastName email')
-        .populate('assignedTo.responder', 'firstName lastName email')
-        .sort({ createdAt: -1 });
+    // Try to verify the user if a token exists
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'mysecretkey');
+        user = await User.findById(decoded.id).select('-password');
+      } catch (e) { /* Ignore invalid tokens */ }
     }
 
-    // ✅ Format incidents safely
-    const formattedIncidents = incidents.map(inc => {
-      const obj = inc.toObject();
-      // Ensure assignedTo is always an array
-      if (!obj.assignedTo || !Array.isArray(obj.assignedTo)) {
-        obj.assignedTo = [];
-      }
-      return {
-        ...obj,
-        id: obj._id,
-        incidentId: obj.incidentId || 'N/A'
-      };
-    });
+    if (user) {
+      // 🟢 LOGGED IN USER LOGIC
+      const userId = user.id;
+      const userRole = user.role;
 
-    console.log(`👤 ${userRole} (${userId}) viewing ${formattedIncidents.length} incidents`);
-    res.json({ success: true, data: formattedIncidents });
+      if (userRole === 'civilian') {
+        incidents = await Incident.find({ reportedBy: userId }).sort({ createdAt: -1 });
+      }
+      else if (userRole === 'volunteer') {
+        incidents = await Incident.find({ 'assignedTo.responder': userId }).sort({ createdAt: -1 });
+      }
+      else if (['admin', 'dispatcher', 'responder'].includes(userRole)) {
+        incidents = await Incident.find({}).sort({ createdAt: -1 });
+      }
+    } else {
+      // 🔵 GUEST LOGIC: Only show guest reports
+      console.log("👤 Guest loading reports...");
+      incidents = await Incident.find({}).sort({ createdAt: -1 });
+    }
+
+    res.json({ success: true, data: incidents });
   } catch (error) {
     console.error('Get incidents error:', error);
     res.status(500).json({ success: false, message: error.message });

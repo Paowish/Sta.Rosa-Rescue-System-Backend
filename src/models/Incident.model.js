@@ -29,10 +29,11 @@ const incidentSchema = new mongoose.Schema({
     province: { type: String, default: 'Nueva Ecija' }
   },
   description: { type: String, required: true, maxlength: 1000 },
-  reportedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  reportedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   reportedAt: { type: Date, default: Date.now },
   reporterNumber: { type: String, default: '' },
   reporterName: { type: String, default: "Anonymous" },
+  isGuest: { type: Boolean, default: false },
   victimsAffected: { type: Number, default: 0 },
   image: { type: String, default: null },
   images: [{ url: String, caption: String }],
@@ -76,6 +77,8 @@ const incidentSchema = new mongoose.Schema({
     }],
     lastUpdated: { type: Date, default: Date.now }
   }
+
+
 }, { timestamps: true });
 
 module.exports = mongoose.model('Incident', incidentSchema);
