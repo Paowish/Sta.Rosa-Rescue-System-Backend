@@ -9,10 +9,8 @@ const fs = require('fs');
 const http = require('http');
 const socketIo = require('socket.io');
 const { noSqlSanitizer, xssSanitizer } = require('./src/middleware/sanitize.middleware');
-// Add this with your other imports
 const { sendVolunteerAccepted, sendVolunteerRejected } = require('./src/services/email.service');
 
-// FORCE DNS OVERRIDE FOR LOCAL DEVELOPMENT
 const dns = require("dns");
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
@@ -21,36 +19,32 @@ require('dotenv').config();
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
-
 const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
-// ✅ HARDCODE YOUR CLOUDINARY CREDENTIALS HERE
 cloudinary.config({
-  cloud_name: 'nvvaydmz',      // ← Replace with your Cloudinary cloud name
-  api_key: '158414443953793',            // ← Replace with your Cloudinary API key
-  api_secret: 'vC7Bmv3Qn31dazyOiB1lCTqZ7bo'       // ← Replace with your Cloudinary API secret
+  cloud_name: 'nvvaydmz',
+  api_key: '158414443953793',
+  api_secret: 'vC7Bmv3Qn31dazyOiB1lCTqZ7bo'
 });
 
 const app = express();
 
 const VolunteerApplication = require('./src/models/VolunteerApplication.model');
-const Incident = require('./src/models/Incident.model');  // ✅ ADD THIS
-const Notification = require('./src/models/Notification.model'); // ✅ ADD THIS
+const Incident = require('./src/models/Incident.model');
+const Notification = require('./src/models/Notification.model');
 const volunteerRoutes = require('./src/routes/volunteer.routes');
 
 app.use('/api/volunteers', volunteerRoutes);
 
 app.set('trust proxy', true);
 
-// Global rate limiter
 app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,  // 15 minutes
-  max: 1000,                   // 100 requests per IP
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
   message: 'Too many requests, please try again later.',
   validate: { trustProxy: false }
 }));
-
 
 const server = http.createServer(app);
 const io = socketIo(server, {
@@ -61,48 +55,32 @@ const io = socketIo(server, {
   }
 });
 
-// Make io accessible to routes
 app.set('io', io);
 
-// Socket.io connection handling
 io.on('connection', (socket) => {
-  console.log('🔌 New client connected:', socket.id);
-
   socket.on('join', (userId) => {
     socket.join(`user_${userId}`);
-    console.log(`✅ User ${userId} joined room: user_${userId}`);
   });
 
   socket.on('join-room', (room) => {
     socket.join(room);
-    console.log(`✅ Socket ${socket.id} joined room: ${room}`);
   });
 
-  socket.on('disconnect', () => {
-    console.log('🔌 Client disconnected:', socket.id);
-  });
+  socket.on('disconnect', () => { });
 
-  // In server.js, inside io.on('connection', (socket) => { ... })
-
-  // ✅ Handle volunteer location updates
   socket.on('volunteer-location', async (data) => {
-    console.log('📍 Volunteer location received:', data);
-
     try {
       const { volunteerId, volunteerName, incidentId, location, status } = data;
 
       if (incidentId && location) {
-        // Update incident with responder location
         const incident = await Incident.findById(incidentId);
         if (incident) {
-          // Update responder location
           incident.responderLocation = {
             type: 'Point',
             coordinates: [location.lng, location.lat],
             updatedAt: new Date()
           };
 
-          // Update responder info
           incident.responder = {
             id: volunteerId,
             name: volunteerName || 'Volunteer',
@@ -117,16 +95,13 @@ io.on('connection', (socket) => {
             lastUpdated: new Date()
           };
 
-          // Update incident status if not already set
           if (incident.status !== 'En Route') {
             incident.status = 'En Route';
           }
 
           await incident.save();
-          console.log(`✅ Updated incident ${incidentId} with volunteer location`);
         }
 
-        // Broadcast to all clients in the incident room
         socket.to(`incident_${incidentId}`).emit('volunteer-location-update', {
           volunteerId: volunteerId,
           volunteerName: volunteerName || 'Volunteer',
@@ -135,7 +110,6 @@ io.on('connection', (socket) => {
           timestamp: new Date().toISOString()
         });
 
-        // Also broadcast to all connected clients (civilians, dispatchers)
         socket.broadcast.emit('volunteer-location-update', {
           volunteerId: volunteerId,
           volunteerName: volunteerName || 'Volunteer',
@@ -150,16 +124,12 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ✅ Join incident room
   socket.on('join-incident', (incidentId) => {
     socket.join(`incident_${incidentId}`);
-    console.log(`✅ Socket ${socket.id} joined incident room: ${incidentId}`);
   });
 
-  // ✅ Leave incident room
   socket.on('leave-incident', (incidentId) => {
     socket.leave(`incident_${incidentId}`);
-    console.log(`✅ Socket ${socket.id} left incident room: ${incidentId}`);
   });
 });
 
@@ -170,8 +140,6 @@ app.use(helmet({
   contentSecurityPolicy: false
 }));
 
-// Middleware
-// ----------------- CORS CONFIGURATION -----------------
 const allowedOrigins = [
   'http://localhost:5173',
   'https://sta-rosa-nueva-ecija-emergency-response.vercel.app',
@@ -181,10 +149,8 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
 
-    // Check if the origin matches any allowed pattern
     const isAllowed = allowedOrigins.some(pattern => {
       if (pattern instanceof RegExp) {
         return pattern.test(origin);
@@ -204,31 +170,21 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// app.options('*', cors());
-// https://theater-preaching-truth.ngrok-free.dev/api/auth
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// DATA SANITIZATION MIDDLEWARE (ADD THIS)
-// ============================================
-app.use(noSqlSanitizer);  // Prevents NoSQL injection
-app.use(xssSanitizer);     // Prevents XSS attacks
+app.use(noSqlSanitizer);
+app.use(xssSanitizer);
 
-
-// MongoDB Connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/rescue-response-system';
 
 mongoose.connect(MONGODB_URI)
   .then(() => console.log('✅ MongoDB connected successfully'))
   .catch(err => console.error('❌ MongoDB error:', err.message));
 
-// ==================== USER SCHEMA ====================
-// ✅ User model is imported from separate file
 const User = require('./src/models/User.model');
-// ============================================
 const authRoutes = require('./src/routes/auth.routes');
 
-// Helper function to create notification and emit via socket
 async function createNotification(recipientId, type, title, message, data = {}) {
   try {
     const notification = new Notification({
@@ -250,7 +206,6 @@ async function createNotification(recipientId, type, title, message, data = {}) 
       ...data
     });
 
-    console.log(`📢 Notification sent to ${recipientId}: ${title}`);
     return notification;
   } catch (error) {
     console.error('Failed to create notification:', error);
@@ -258,20 +213,9 @@ async function createNotification(recipientId, type, title, message, data = {}) 
   }
 }
 
-
-
-
-
-
-
-
-
-// ==================== JWT TOKEN ====================
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET || 'mysecretkey', { expiresIn: '7d' });
 };
-
-// Replace the protect middleware
 
 const protect = async (req, res, next) => {
   let token;
@@ -296,19 +240,16 @@ const protect = async (req, res, next) => {
   return res.status(401).json({ success: false, message: 'Not authorized, no token' });
 };
 
-// In your server.js, add this endpoint
 app.get('/api/volunteer/active-dispatch', protect, async (req, res) => {
   try {
     const volunteerId = req.user.id;
 
-    // Find any active incident where this volunteer is assigned and status is not resolved
     const activeIncident = await Incident.findOne({
       'assignedTo.responder': volunteerId,
       status: { $in: ['Pending', 'Acknowledged', 'Active', 'En Route', 'Dispatched'] }
     }).populate('reportedBy', 'firstName lastName email phoneNumber');
 
     if (activeIncident) {
-      // Format the incident data
       const lat = activeIncident.location?.coordinates?.latitude ||
         activeIncident.location?.coordinates?.lat || 15.428991;
       const lng = activeIncident.location?.coordinates?.longitude ||
@@ -352,8 +293,6 @@ app.get('/api/volunteer/active-dispatch', protect, async (req, res) => {
   }
 });
 
-// Multer for registration form data (for volunteer applications)
-// Increase multer limits for file uploads
 const registrationUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -362,16 +301,11 @@ const registrationUpload = multer({
   }
 });
 
-
-// ==================== VOLUNTEER PROFILE UPDATE ROUTE ====================
 app.put('/api/volunteer/profile', protect, async (req, res) => {
   try {
     const { firstName, lastName, phoneNumber, address, certifications, availability, description } = req.body;
     const userId = req.user.id;
 
-    console.log(`📝 Updating profile for volunteer: ${userId}`);
-
-    // 1. Update User model
     const user = await User.findByIdAndUpdate(
       userId,
       {
@@ -386,7 +320,6 @@ app.put('/api/volunteer/profile', protect, async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // 2. Update VolunteerApplication model (if exists)
     const application = await VolunteerApplication.findOneAndUpdate(
       { userId: userId },
       {
@@ -401,17 +334,14 @@ app.put('/api/volunteer/profile', protect, async (req, res) => {
       { new: true }
     );
 
-    // 3. ✅ 🔥 EMIT SOCKET EVENT TO RESCUE TEAM
     const io = req.app.get('io');
     if (io) {
       io.emit('volunteer_application_updated', {
         volunteerId: userId,
         timestamp: new Date()
       });
-      console.log(`📢 Socket event 'volunteer_application_updated' emitted for ${userId}`);
     }
 
-    // 4. Notify the volunteer themselves
     await createNotification(
       userId,
       'system_announcement',
@@ -432,12 +362,8 @@ app.put('/api/volunteer/profile', protect, async (req, res) => {
   }
 });
 
-// ==================== ADMIN USER MANAGEMENT ====================
-
-// ✅ Delete User
 app.delete('/api/admin/delete-user/:userId', protect, async (req, res) => {
   try {
-    // Only allow admin to delete users
     if (!['admin', 'dispatcher', 'responder'].includes(req.user.role)) {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
@@ -447,7 +373,6 @@ app.delete('/api/admin/delete-user/:userId', protect, async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Also delete their volunteer application if exists
     await VolunteerApplication.findOneAndDelete({ userId: req.params.userId });
 
     res.json({ success: true, message: 'User deleted successfully' });
@@ -457,21 +382,18 @@ app.delete('/api/admin/delete-user/:userId', protect, async (req, res) => {
   }
 });
 
-// ✅ Update User (With Clean Error Handling)
 app.put('/api/admin/update-user/:userId', protect, async (req, res) => {
   try {
-    // Only allow admin to update users
     if (!['admin', 'dispatcher', 'responder'].includes(req.user.role)) {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
     const { firstName, lastName, email, phoneNumber, role, isApproved, password } = req.body;
 
-    // 1. Check if the NEW email already exists in the database (Belongs to someone else)
     if (email) {
       const existingUser = await User.findOne({
         email: email,
-        _id: { $ne: req.params.userId } // Look for this email, but not this user's ID
+        _id: { $ne: req.params.userId }
       });
       if (existingUser) {
         return res.status(400).json({
@@ -491,7 +413,6 @@ app.put('/api/admin/update-user/:userId', protect, async (req, res) => {
       applicationStatus: isApproved !== undefined ? (isApproved ? 'approved' : 'pending') : 'approved'
     };
 
-    // Only hash password if provided
     if (password && password.trim() !== '') {
       updateData.password = await bcrypt.hash(password, 10);
     }
@@ -506,7 +427,6 @@ app.put('/api/admin/update-user/:userId', protect, async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Update volunteer application status if role is volunteer
     if (role === 'volunteer') {
       await VolunteerApplication.findOneAndUpdate(
         { userId: req.params.userId },
@@ -523,7 +443,6 @@ app.put('/api/admin/update-user/:userId', protect, async (req, res) => {
   } catch (error) {
     console.error('❌ Update user error:', error);
 
-    // 🛑 Specific handler for MongoDB Duplicate Key Error
     if (error.code === 11000 || (error.message && error.message.includes("E11000 duplicate key error"))) {
       return res.status(400).json({
         success: false,
@@ -531,18 +450,13 @@ app.put('/api/admin/update-user/:userId', protect, async (req, res) => {
       });
     }
 
-    // Fallback error
     res.status(500).json({ success: false, message: error.message || 'Failed to update user' });
   }
 });
 
-
-// Volunteer declines dispatch
 app.put('/api/incidents/:id/decline', protect, async (req, res) => {
   try {
     const incidentId = req.params.id;
-
-    console.log(`🔵 Declining dispatch for incident ${incidentId}`);
 
     const incident = await Incident.findById(incidentId);
     if (!incident) {
@@ -569,7 +483,6 @@ app.put('/api/incidents/:id/decline', protect, async (req, res) => {
   }
 });
 
-// Get responder location
 app.get('/api/incidents/:id/responder-location', protect, async (req, res) => {
   try {
     const incident = await Incident.findById(req.params.id)
@@ -594,10 +507,8 @@ app.get('/api/incidents/:id/responder-location', protect, async (req, res) => {
   }
 });
 
-// ✅ Keep this for other auth routes
 app.use('/api/auth', authRoutes);
 
-// In your server.js or routes file
 app.get('/api/users/responders', protect, async (req, res) => {
   try {
     const responders = await User.find({
@@ -618,16 +529,11 @@ app.get('/api/users/responders', protect, async (req, res) => {
   }
 });
 
-
-
-// ==================== FILE UPLOAD ====================
-// Keep this for other file uploads (if needed)
 const uploadDir = './uploads';
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Keep the local storage for other uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, 'uploads/');
@@ -642,8 +548,6 @@ const upload = multer({ storage: storage, limits: { fileSize: 5 * 1024 * 1024 } 
 
 app.use('/uploads', express.static('uploads'));
 
-// ==================== PROFILE IMAGE UPLOAD WITH CLOUDINARY ====================
-// ✅ NEW: Profile image upload using Cloudinary
 const profileUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -658,17 +562,10 @@ const profileUpload = multer({
 
 app.post('/api/auth/upload-profile-image', protect, profileUpload.single('profileImage'), async (req, res) => {
   try {
-    console.log('📸 Profile image upload request received');
-    console.log('📸 User ID:', req.user.id);
-
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
 
-    console.log('📸 File received:', req.file.originalname);
-    console.log('📸 File size:', req.file.size);
-
-    // ✅ Upload to Cloudinary in the 'profiles' folder
     const result = await cloudinary.uploader.upload(
       `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`,
       {
@@ -680,9 +577,6 @@ app.post('/api/auth/upload-profile-image', protect, profileUpload.single('profil
       }
     );
 
-    console.log('✅ Cloudinary upload successful:', result.secure_url);
-
-    // ✅ Update user's profile image in MongoDB with Cloudinary URL
     const user = await User.findByIdAndUpdate(
       req.user.id,
       { profileImage: result.secure_url },
@@ -692,8 +586,6 @@ app.post('/api/auth/upload-profile-image', protect, profileUpload.single('profil
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-
-    console.log('✅ Profile image updated for user:', user.email);
 
     res.json({
       success: true,
@@ -712,8 +604,6 @@ app.post('/api/auth/upload-profile-image', protect, profileUpload.single('profil
   }
 });
 
-// ==================== INCIDENT ROUTES ====================
-// ✅ Cloudinary Storage for incident images
 const cloudinaryStorage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
@@ -728,49 +618,33 @@ const incidentUpload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }
 });
 
-// ✅ UPDATED POST ROUTE: Handles both Guests and Logged-in Users
 app.post('/api/incidents', incidentUpload.single('photo'), async (req, res) => {
   try {
-    console.log("🔵 ===== INCIDENT POST START =====");
-
-    // 1. Detect if it's a Guest or Logged-in User
     const token = req.headers.authorization?.split(' ')[1];
     let user = null;
-    let isGuest = false; // Default to false
+    let isGuest = false;
 
-    // ✅ If there is a token, try to decode it
     if (token) {
       try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'mysecretkey');
         user = await User.findById(decoded.id).select('-password');
-      } catch (e) {
-        // Token invalid, keep user as null
-      }
+      } catch (e) { }
     }
 
-    // ✅ If no user was found (Guest), set isGuest to true!
     if (!user) {
       isGuest = true;
     }
 
-    console.log("🔵 Is Guest:", isGuest);
-    console.log("🔵 Has file:", !!req.file);
-
-    // 2. Handle Image Upload
     let imageUrl = null;
     if (req.file) {
-      imageUrl = req.file.path; // Cloudinary URL
-      console.log("📸 Cloudinary URL:", imageUrl);
+      imageUrl = req.file.path;
     } else if (req.body.image && req.body.image.startsWith('data:image')) {
-      // Handle Base64 string if guest sent it differently
       const result = await cloudinary.uploader.upload(req.body.image, {
         folder: 'incidents'
       });
       imageUrl = result.secure_url;
-      console.log("📸 Base64 uploaded to Cloudinary:", imageUrl);
     }
 
-    // 3. Parse location
     let location = req.body.location;
     if (typeof location === 'string') {
       try {
@@ -783,36 +657,28 @@ app.post('/api/incidents', incidentUpload.single('photo'), async (req, res) => {
     if (!location.address) location.address = 'Unknown location';
     if (!location.coordinates) location.coordinates = { latitude: 0, longitude: 0 };
 
-    // 4. Generate incident ID
     const year = new Date().getFullYear();
     const timestamp = Date.now().toString().slice(-6);
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
     const incidentId = `RES-${year}-${timestamp}${random}`;
-    console.log(`✅ Generated incident ID: ${incidentId}`);
 
-    // 5. Build incident data
     const incidentData = {
       incidentId: incidentId,
       type: req.body.type || 'Other',
       description: req.body.description || '',
       location: location,
       severity: req.body.severity || 'Medium',
-      reportedBy: user ? user._id : null, // Set to null for guests
+      reportedBy: user ? user._id : null,
       reporterNumber: req.body.reporterNumber || '',
       reporterName: req.body.reporterName || 'Guest User',
       victimsAffected: parseInt(req.body.victimsAffected) || 0,
       image: imageUrl,
       status: 'Pending',
-      isGuest: isGuest // ✅ CRITICAL: This marks it as a Guest report!
+      isGuest: isGuest
     };
 
-    console.log("📝 Incident data:", JSON.stringify(incidentData, null, 2));
-
-    // 6. Create incident
     const incident = await Incident.create(incidentData);
-    console.log("✅ Incident created with ID:", incident.incidentId);
 
-    // 7. If there's a real user, send them a notification
     if (user) {
       Promise.resolve().then(async () => {
         try {
@@ -829,14 +695,12 @@ app.post('/api/incidents', incidentUpload.single('photo'), async (req, res) => {
       });
     }
 
-    // 8. Notify Responders (Always, even for Guests)
     Promise.resolve().then(async () => {
       try {
         const responders = await User.find({
           role: { $in: ['admin', 'dispatcher', 'responder'] },
           isActive: true
         });
-        console.log(`📢 Sending notifications to ${responders.length} responders`);
 
         for (const responder of responders) {
           await createNotification(
@@ -857,7 +721,6 @@ app.post('/api/incidents', incidentUpload.single('photo'), async (req, res) => {
       }
     });
 
-    // 9. Send response immediately
     res.status(201).json({
       success: true,
       data: {
@@ -877,13 +740,10 @@ app.post('/api/incidents', incidentUpload.single('photo'), async (req, res) => {
   }
 });
 
-// ==================== DISPATCH INCIDENT TO VOLUNTEERS ====================
 app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
   try {
     const { volunteerIds, dispatchNotes } = req.body;
     const incidentId = req.params.id;
-
-    console.log(`📋 Dispatching incident ${incidentId} to volunteers:`, volunteerIds);
 
     const incident = await Incident.findById(incidentId);
     if (!incident) {
@@ -928,33 +788,21 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
       return res.status(400).json({ success: false, message: `The following volunteers are already assigned to other active incidents: ${names}`, busyVolunteers });
     }
 
-    // ✅ All validations passed - proceed with dispatch
     const newAssignments = volunteerIds.map(id => ({ responder: id, assignedAt: new Date(), status: 'Pending' }));
     incident.assignedTo = [...incident.assignedTo, ...newAssignments];
     incident.status = 'Pending';
     incident.dispatchNotes = dispatchNotes || 'Dispatched to volunteers';
     await incident.save();
 
-    console.log(`✅ Incident ${incident.incidentId} updated with assignedTo:`, incident.assignedTo);
-
     const volunteers = await User.find({ _id: { $in: volunteerIds }, role: 'volunteer', isActive: true, isApproved: true });
-
-    console.log(`📢 Found ${volunteers.length} volunteers to notify`);
 
     const io = req.app.get('io');
 
-    // ==========================================================
-    // ✅ IMPORT SERVICES AND MODELS
-    // ==========================================================
     const { sendEmergencyPush, sendEmailAlert } = require('./src/services/alert.service');
     const PushSubscription = require('./src/models/PushSubscription.model');
-    const nodemailer = require('nodemailer'); // ✅ FIX: Import nodemailer to avoid "not defined" errors!
+    const nodemailer = require('nodemailer');
 
-    // ==========================================================
-    // 🚨 1. NOTIFY VOLUNTEERS (Siren + Email)
-    // ==========================================================
     for (const volunteer of volunteers) {
-      // In-App Dashboard Notification
       const notification = await Notification.create({
         recipient: volunteer._id,
         type: 'response_assignment',
@@ -971,8 +819,6 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
         data: { incidentId: incident._id, incidentType: incident.type, location: incident.location.address, severity: incident.severity },
         createdAt: notification.createdAt
       });
-
-      console.log(`📢 In-app notification sent to volunteer: ${volunteer.email}`);
 
       const subscription = await PushSubscription.findOne({ userId: volunteer._id });
       if (subscription) {
@@ -993,13 +839,9 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
       }
     }
 
-    // ==========================================================
-    // 📢 2. NOTIFY THE CIVILIAN (Bell Notification + Email)
-    // ==========================================================
     const civilian = await User.findById(incident.reportedBy);
 
     if (civilian) {
-      // 1. In-App Dashboard Notification for Civilian
       const civilianNotif = await Notification.create({
         recipient: civilian._id,
         type: 'incident_update',
@@ -1017,9 +859,6 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
         createdAt: civilianNotif.createdAt
       });
 
-      console.log(`📢 In-app notification sent to civilian: ${civilian.email}`);
-
-      // 2. Send Email Backup to Civilian (Reusing nodemailer transporter directly)
       if (civilian.email) {
         const civilianEmailHtml = `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
@@ -1042,7 +881,6 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
           </div>
         `;
 
-        // ✅ FIX: Create the transporter inside the dispatch function
         const transporter = nodemailer.createTransport({
           service: 'gmail',
           auth: {
@@ -1057,14 +895,9 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
           subject: `✅ Dispatch Update: ${incident.incidentId}`,
           html: civilianEmailHtml
         });
-
-        console.log(`📧 Email sent to civilian: ${civilian.email}`);
       }
     }
 
-    // ==========================================================
-    // 📢 3. NOTIFY RESCUE TEAM
-    // ==========================================================
     const rescueTeam = await User.find({ role: { $in: ['admin', 'dispatcher', 'responder'] }, isActive: true });
     for (const member of rescueTeam) {
       io.to(`user_${member._id}`).emit('new_notification', {
@@ -1075,9 +908,6 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
       });
     }
 
-    // ==========================================================
-    // ✅ 4. SEND FINAL RESPONSE
-    // ==========================================================
     const updatedIncident = await Incident.findById(incidentId)
       .populate('reportedBy', 'firstName lastName email')
       .populate('assignedTo.responder', 'firstName lastName email');
@@ -1094,12 +924,10 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
   }
 });
 
-// ==================== REMOVE VOLUNTEER FROM INCIDENT ====================
 app.delete('/api/incidents/:id/volunteer/:volunteerId', protect, async (req, res) => {
   try {
     const { id, volunteerId } = req.params;
 
-    // Only admin/dispatcher/responder can remove volunteers
     if (!['admin', 'dispatcher', 'responder'].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
@@ -1112,19 +940,16 @@ app.delete('/api/incidents/:id/volunteer/:volunteerId', protect, async (req, res
       return res.status(404).json({ success: false, message: 'Incident not found' });
     }
 
-    // Remove the volunteer from assignedTo array
     incident.assignedTo = incident.assignedTo.filter(
       assignment => assignment.responder.toString() !== volunteerId
     );
 
-    // If no volunteers left, update status back to Pending
     if (incident.assignedTo.length === 0) {
       incident.status = 'Pending';
     }
 
     await incident.save();
 
-    // Notify the volunteer
     await createNotification(
       volunteerId,
       'incident_update',
@@ -1147,7 +972,6 @@ app.delete('/api/incidents/:id/volunteer/:volunteerId', protect, async (req, res
   }
 });
 
-// ==================== GET AVAILABLE VOLUNTEERS ====================
 app.get('/api/volunteers/available', protect, async (req, res) => {
   try {
     const volunteers = await User.find({
@@ -1169,14 +993,12 @@ app.get('/api/volunteers/available', protect, async (req, res) => {
   }
 });
 
-// ✅ UPDATED: Get Incidents - Allows Guests WITHOUT Token
 app.get('/api/incidents', async (req, res) => {
   try {
     let incidents;
     const token = req.headers.authorization?.split(' ')[1];
     let user = null;
 
-    // Try to verify the user if a token exists
     if (token) {
       try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'mysecretkey');
@@ -1185,7 +1007,6 @@ app.get('/api/incidents', async (req, res) => {
     }
 
     if (user) {
-      // 🟢 LOGGED IN USER LOGIC
       const userId = user.id;
       const userRole = user.role;
 
@@ -1199,8 +1020,6 @@ app.get('/api/incidents', async (req, res) => {
         incidents = await Incident.find({}).sort({ createdAt: -1 });
       }
     } else {
-      // 🔵 GUEST LOGIC: Only show guest reports
-      console.log("👤 Guest loading reports...");
       incidents = await Incident.find({}).sort({ createdAt: -1 });
     }
 
@@ -1211,12 +1030,10 @@ app.get('/api/incidents', async (req, res) => {
   }
 });
 
-// server.js - Get incidents for a specific volunteer
 app.get('/api/incidents/volunteer/:volunteerId', protect, async (req, res) => {
   try {
     const { volunteerId } = req.params;
 
-    // ✅ Verify the requesting user is the volunteer or admin
     if (req.user.id !== volunteerId && !['admin', 'dispatcher', 'responder'].includes(req.user.role)) {
       return res.status(403).json({
         success: false,
@@ -1224,7 +1041,6 @@ app.get('/api/incidents/volunteer/:volunteerId', protect, async (req, res) => {
       });
     }
 
-    // ✅ Query using the nested structure
     const incidents = await Incident.find({
       'assignedTo.responder': volunteerId
     })
@@ -1244,7 +1060,6 @@ app.get('/api/incidents/volunteer/:volunteerId', protect, async (req, res) => {
       };
     });
 
-    console.log(`📋 Volunteer ${volunteerId} viewing ${formattedIncidents.length} assigned incidents`);
     res.json({ success: true, data: formattedIncidents });
   } catch (error) {
     console.error('Get volunteer incidents error:', error);
@@ -1252,8 +1067,6 @@ app.get('/api/incidents/volunteer/:volunteerId', protect, async (req, res) => {
   }
 });
 
-// server.js - Add/Update this route after your other incident routes
-// Get incident by ID (with permission check) - UPDATED
 app.get('/api/incidents/:id', protect, async (req, res) => {
   try {
     const incident = await Incident.findById(req.params.id)
@@ -1263,7 +1076,6 @@ app.get('/api/incidents/:id', protect, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Incident not found' });
     }
 
-    // Check if civilian is trying to access someone else's incident
     if (req.user.role === 'civilian' && incident.reportedBy._id.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
@@ -1271,7 +1083,6 @@ app.get('/api/incidents/:id', protect, async (req, res) => {
       });
     }
 
-    // ✅ Convert to object and ensure incidentId is included
     const incidentData = incident.toObject();
 
     res.json({
@@ -1336,8 +1147,6 @@ app.put('/api/incidents/:id/accept', protect, async (req, res) => {
     const { volunteerId, responderName } = req.body;
     const userId = req.user.id;
 
-    console.log('📥 Accept incident request:', { id, volunteerId, responderName, userId });
-
     const volunteerIdToUse = volunteerId || userId;
 
     let responderNameToSave = responderName;
@@ -1355,15 +1164,11 @@ app.put('/api/incidents/:id/accept', protect, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Incident not found' });
     }
 
-    // ✅ Check if already accepted by this volunteer
     const alreadyAccepted = incident.assignedTo && incident.assignedTo.some(
       a => a.responder && a.responder.toString() === volunteerIdToUse.toString()
     );
 
-    // ✅ If already accepted by this volunteer, update the status
     if (alreadyAccepted) {
-      console.log('✅ Volunteer already accepted this incident, updating status');
-
       const updatedIncident = await Incident.findByIdAndUpdate(
         id,
         {
@@ -1390,7 +1195,6 @@ app.put('/api/incidents/:id/accept', protect, async (req, res) => {
       });
     }
 
-    // ✅ If En Route or On Scene by another volunteer, reject
     if (incident.status === 'En Route' || incident.status === 'On Scene') {
       if (incident.responder && incident.responder.id) {
         return res.status(400).json({
@@ -1400,7 +1204,6 @@ app.put('/api/incidents/:id/accept', protect, async (req, res) => {
       }
     }
 
-    // ✅ If Resolved or Closed, reject
     if (incident.status === 'Resolved' || incident.status === 'Closed') {
       return res.status(400).json({
         success: false,
@@ -1408,7 +1211,6 @@ app.put('/api/incidents/:id/accept', protect, async (req, res) => {
       });
     }
 
-    // ✅ Update incident to En Route
     const updatedIncident = await Incident.findByIdAndUpdate(
       id,
       {
@@ -1435,7 +1237,6 @@ app.put('/api/incidents/:id/accept', protect, async (req, res) => {
       { new: true }
     );
 
-    // Emit socket events
     const io = req.app.get('io');
     if (io) {
       io.emit('incident_status_update', {
@@ -1457,7 +1258,6 @@ app.put('/api/incidents/:id/accept', protect, async (req, res) => {
   }
 });
 
-// ==================== VOLUNTEER ROUTES ====================
 app.get('/api/volunteers/applications', protect, async (req, res) => {
   try {
     const { status, page = 1, limit = 10 } = req.query;
@@ -1480,8 +1280,6 @@ app.get('/api/volunteers/applications', protect, async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
-
-// ==================== VOLUNTEER APPROVAL ROUTES ====================
 
 app.get('/api/admin/pending-volunteers', protect, async (req, res) => {
   try {
@@ -1520,7 +1318,6 @@ app.get('/api/admin/pending-volunteers', protect, async (req, res) => {
 
 app.put('/api/admin/approve-volunteer/:userId', protect, async (req, res) => {
   try {
-    // 🔥 ADD THIS DEBUG LOG
     console.log('🔐 EMAIL_USER:', process.env.EMAIL_USER);
     console.log('🔐 EMAIL_PASS:', process.env.EMAIL_PASS ? '✅ Set' : '❌ Not Set');
     console.log('🔐 EMAIL_PASS length:', process.env.EMAIL_PASS ? process.env.EMAIL_PASS.length : 0);
@@ -1544,15 +1341,11 @@ app.put('/api/admin/approve-volunteer/:userId', protect, async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    console.log(`🔵 User found: ${user.email} (${user.firstName} ${user.lastName})`);
-
-    // Update VolunteerApplication
     await VolunteerApplication.findOneAndUpdate(
       { userId: user._id },
       { status: 'accepted' }
     );
 
-    // Create notification
     await createNotification(
       user._id,
       'volunteer_status',
@@ -1561,12 +1354,9 @@ app.put('/api/admin/approve-volunteer/:userId', protect, async (req, res) => {
       { userId: user._id, status: 'approved', approvedBy: req.user._id }
     );
 
-    // ✅ SEND EMAIL
     try {
-      console.log(`📧 Attempting to send email to: ${user.email}`);
       const { sendVolunteerAccepted } = require('./src/services/email.service');
-      const result = await sendVolunteerAccepted(user.email, user.firstName, user.lastName);
-      console.log('📧 Email send result:', result);
+      await sendVolunteerAccepted(user.email, user.firstName, user.lastName);
     } catch (emailError) {
       console.error('❌ Email error:', emailError);
     }
@@ -1582,17 +1372,11 @@ app.put('/api/admin/approve-volunteer/:userId', protect, async (req, res) => {
   }
 });
 
-// Add this to your backend routes
 app.post('/api/incidents/:incidentId/update-location', protect, async (req, res) => {
   try {
     const { incidentId } = req.params;
     const { lat, lng, volunteerName } = req.body;
 
-    console.log('📍 Updating location for incident:', incidentId);
-    console.log('📍 Location:', lat, lng);
-    console.log('📍 Volunteer:', volunteerName);
-
-    // Update incident with responder location
     const incident = await Incident.findByIdAndUpdate(
       incidentId,
       {
@@ -1611,7 +1395,6 @@ app.post('/api/incidents/:incidentId/update-location', protect, async (req, res)
       return res.status(404).json({ success: false, message: 'Incident not found' });
     }
 
-    // Also update the responder's location history
     await Incident.findByIdAndUpdate(
       incidentId,
       {
@@ -1635,7 +1418,7 @@ app.post('/api/incidents/:incidentId/update-location', protect, async (req, res)
     res.status(500).json({ success: false, message: error.message });
   }
 });
-// Test email route
+
 app.get('/api/test-email', async (req, res) => {
   try {
     const { sendVolunteerAccepted } = require('./src/services/email.service');
@@ -1646,7 +1429,6 @@ app.get('/api/test-email', async (req, res) => {
   }
 });
 
-// server.js - Reject volunteer
 app.put('/api/admin/reject-volunteer/:userId', protect, async (req, res) => {
   try {
     const allowedRoles = ['admin', 'dispatcher', 'responder'];
@@ -1669,15 +1451,11 @@ app.put('/api/admin/reject-volunteer/:userId', protect, async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    console.log(`🔵 User found: ${user.email} (${user.firstName} ${user.lastName})`);
-
-    // Update VolunteerApplication
     await VolunteerApplication.findOneAndUpdate(
       { userId: user._id },
       { status: 'rejected' }
     );
 
-    // Create notification
     await createNotification(
       user._id,
       'volunteer_status',
@@ -1686,9 +1464,7 @@ app.put('/api/admin/reject-volunteer/:userId', protect, async (req, res) => {
       { userId: user._id, status: 'rejected', rejectedBy: req.user._id }
     );
 
-    // ✅ SEND EMAIL
     try {
-      console.log(`📧 Attempting to send rejection email to: ${user.email}`);
       const result = await sendVolunteerRejected(user.email, user.firstName, user.lastName, reason);
       console.log('📧 Email send result:', result);
     } catch (emailError) {
@@ -1753,7 +1529,6 @@ app.put('/api/volunteers/applications/:id/review', protect, async (req, res) => 
   }
 });
 
-// server.js - Fixed endpoint to include profileImage
 app.get('/api/admin/all-volunteers', protect, async (req, res) => {
   try {
     const allowedRoles = ['admin', 'dispatcher', 'responder'];
@@ -1771,7 +1546,6 @@ app.get('/api/admin/all-volunteers', protect, async (req, res) => {
       const application = applications.find(app => app.email === volunteer.email);
       return {
         ...volunteer.toObject(),
-        // ✅ Pass the profileImage directly from the User model
         profileImage: volunteer.profileImage || null,
         application: application ? {
           ...application.toObject(),
@@ -1799,51 +1573,12 @@ app.delete('/api/volunteers/applications/:id', protect, async (req, res) => {
   }
 });
 
-// server.js - Replace your stats endpoint with this FULL version
 app.get('/api/volunteers/stats', protect, async (req, res) => {
   try {
-    console.log('📊 ===== STATS ENDPOINT CALLED =====');
-    console.log('📊 User:', req.user?.email || req.user?.id);
-
-    // Method 1: Using the model
     const total = await VolunteerApplication.countDocuments();
-    console.log('📊 Total (model):', total);
-
     const pending = await VolunteerApplication.countDocuments({ status: 'pending' });
-    console.log('📊 Pending (model):', pending);
-
     const accepted = await VolunteerApplication.countDocuments({ status: 'accepted' });
-    console.log('📊 Accepted (model):', accepted);
-
     const rejected = await VolunteerApplication.countDocuments({ status: 'rejected' });
-    console.log('📊 Rejected (model):', rejected);
-
-    // Method 2: Using direct MongoDB collection (as backup)
-    try {
-      const db = mongoose.connection.db;
-      const collection = db.collection('volunteerapplications');
-
-      const totalDirect = await collection.countDocuments();
-      const pendingDirect = await collection.countDocuments({ status: 'pending' });
-      const acceptedDirect = await collection.countDocuments({ status: 'accepted' });
-      const rejectedDirect = await collection.countDocuments({ status: 'rejected' });
-
-      console.log('📊 Total (direct):', totalDirect);
-      console.log('📊 Pending (direct):', pendingDirect);
-      console.log('📊 Accepted (direct):', acceptedDirect);
-      console.log('📊 Rejected (direct):', rejectedDirect);
-    } catch (directError) {
-      console.log('⚠️ Direct collection query failed:', directError.message);
-    }
-
-    // Get a sample document to verify structure
-    const sample = await VolunteerApplication.findOne({});
-    console.log('📊 Sample document:', sample ? {
-      id: sample._id,
-      firstName: sample.firstName,
-      status: sample.status,
-      hasStatus: !!sample.status
-    } : 'No documents found');
 
     res.json({
       success: true,
@@ -1865,27 +1600,37 @@ app.get('/api/volunteers/stats', protect, async (req, res) => {
   }
 });
 
-
 app.get('/api/admin/backup-schedule', protect, async (req, res) => {
   try {
-    // If you have a Settings model, query it here.
-    // For now, we return the default JSON so the UI doesn't crash.
-    res.json({
-      success: true,
-      data: {
+    const Settings = mongoose.model('Settings', new mongoose.Schema({
+      frequency: String,
+      time: String,
+      retentionDays: Number,
+      storagePath: String,
+      emailNotification: Boolean
+    }));
+
+    let settings = await Settings.findOne();
+
+    if (!settings) {
+      settings = await Settings.create({
         frequency: 'Daily',
         time: '3:00 AM',
         retentionDays: 30,
-        storagePath: '/var/backups/whatatops',
+        storagePath: './backups',
         emailNotification: true
-      }
+      });
+    }
+
+    res.json({
+      success: true,
+      data: settings
     });
   } catch (error) {
+    console.error('❌ Error fetching backup schedule:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
-
-// ==================== NOTIFICATION ROUTES ====================
 
 app.get('/api/notifications', protect, async (req, res) => {
   try {
@@ -1923,19 +1668,13 @@ app.put('/api/notifications/read-all', protect, async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
-// ==================== HEALTH CHECK ====================
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Server is running!', timestamp: new Date() });
 });
 
-// ==================== SERVE FRONTEND STATIC FILES ====================
-// This must be AFTER all API routes
-app.use(express.static(path.join(__dirname, 'dist')));
-
-// 1. GET SYSTEM SETTINGS (Mocking for now)
 app.get('/api/admin/settings', protect, async (req, res) => {
   try {
-    // For now, returning default JSON so the UI loads without crashing.
     res.json({
       success: true,
       data: {
@@ -1949,58 +1688,83 @@ app.get('/api/admin/settings', protect, async (req, res) => {
   }
 });
 
-// 2. GET SYSTEM LOGS (Mocking with realistic dummy data)
+// ✅ PURE REAL SYSTEM LOGS ROUTE (NO MOCK DATA, NO SEEDING)
 app.get('/api/admin/system-logs', protect, async (req, res) => {
   try {
-    // Replace this with: const logs = await SystemLog.find().sort({ timestamp: -1 }).limit(100);
-    const mockLogs = [
-      { timestamp: new Date(), type: 'INFO', message: 'Admin login successful: admin@rescue.gov.ph' },
-      { timestamp: new Date(Date.now() - 3600000), type: 'OK', message: 'Automated daily backup completed successfully' },
-      { timestamp: new Date(Date.now() - 7200000), type: 'ERROR', message: 'Failed to send push notification to Volunteer #102' },
-      { timestamp: new Date(Date.now() - 86400000), type: 'WARNING', message: 'Server storage is at 82% capacity' },
-      { timestamp: new Date(Date.now() - 172800000), type: 'INFO', message: 'New user registered: Paolo Carunia' },
-    ];
-    res.json({ success: true, data: mockLogs });
+    const SystemLog = mongoose.model('SystemLog', new mongoose.Schema({
+      timestamp: { type: Date, default: Date.now },
+      type: { type: String, enum: ['INFO', 'OK', 'ERROR', 'WARNING'] },
+      action: String,
+      message: String,
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+    }));
+
+    // Just fetch real logs. If empty, it returns [].
+    const logs = await SystemLog.find().sort({ timestamp: -1 }).limit(50);
+
+    res.json({ success: true, data: logs });
   } catch (error) {
+    console.error('❌ Logs error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// 3. GET ALL BACKUPS (Mocking file list)
 app.get('/api/admin/backups', protect, async (req, res) => {
   try {
-    // Replace this with: fs.readdirSync('/path/to/backups/') logic
-    const mockBackups = [
-      { id: '1', name: 'Full_Backup_2026-08-17', date: '2026-08-17 03:00 AM', type: 'Auto', status: 'OK', size: '1.2 GB' },
-      { id: '2', name: 'Full_Backup_2026-08-16', date: '2026-08-16 03:00 AM', type: 'Auto', status: 'OK', size: '1.1 GB' },
-      { id: '3', name: 'Manual_Backup_2026-08-15', date: '2026-08-15 10:30 PM', type: 'Manual', status: 'OK', size: '1.2 GB' },
-    ];
-    res.json({ success: true, data: mockBackups });
+    const backupDir = path.join(__dirname, 'backups');
+
+    if (!fs.existsSync(backupDir)) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const files = fs.readdirSync(backupDir);
+
+    const backups = files.map((file) => {
+      const filePath = path.join(backupDir, file);
+      const stats = fs.statSync(filePath);
+
+      let dateStr = stats.birthtime.toLocaleString();
+      let backupType = 'Manual';
+
+      const nameParts = file.replace('.json', '').split('_');
+      if (nameParts.length >= 3) {
+        const datePart = nameParts[1];
+        const timePart = nameParts[2].replace(/-/g, ':');
+        dateStr = `${datePart} ${timePart}`;
+        backupType = 'Auto';
+      }
+
+      return {
+        id: file,
+        name: file,
+        date: dateStr,
+        type: backupType,
+        status: 'OK',
+        size: `${(stats.size / 1024 / 1024).toFixed(2)} MB`
+      };
+    });
+
+    res.json({ success: true, data: backups });
   } catch (error) {
+    console.error('Error getting backups:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// 4. TRIGGER BACKUP NOW (FIXED)
 app.post('/api/admin/backup-now', protect, async (req, res) => {
   try {
-    console.log(`🔄 Backup manually triggered by Admin: ${req.user.id}`);
-
-    // ⏳ 1. CREATE THE BACKUP FOLDER IF IT DOESN'T EXIST
     const backupDir = path.join(__dirname, 'backups');
+
     if (!fs.existsSync(backupDir)) {
       fs.mkdirSync(backupDir, { recursive: true });
     }
 
-    // ⏳ 2. GENERATE A UNIQUE FILENAME
     const date = new Date();
     const dateStr = date.toISOString().split('T')[0];
     const timeStr = date.toTimeString().split(' ')[0].replace(/:/g, '-');
     const filename = `Backup_${dateStr}_${timeStr}.json`;
     const filepath = path.join(backupDir, filename);
 
-    // ⏳ 3. SIMULATE DUMPING DATA (Replace this with real mongodump logic later)
-    // For now, we just create a dummy .json file
     const dummyData = {
       timestamp: date.toISOString(),
       message: "System backup completed successfully.",
@@ -2008,9 +1772,6 @@ app.post('/api/admin/backup-now', protect, async (req, res) => {
     };
     fs.writeFileSync(filepath, JSON.stringify(dummyData, null, 2));
 
-    console.log(`✅ Backup file created: ${filepath}`);
-
-    // ✅ 4. SEND SUCCESS RESPONSE TO FRONTEND
     res.json({
       success: true,
       message: 'Backup process completed successfully.'
@@ -2022,46 +1783,62 @@ app.post('/api/admin/backup-now', protect, async (req, res) => {
   }
 });
 
-// 5. RESTORE A BACKUP
 app.post('/api/admin/restore-backup/:backupId', protect, async (req, res) => {
   try {
     const { backupId } = req.params;
-    console.log(`🔄 Restoring backup ID: ${backupId} by Admin: ${req.user.id}`);
-    // REAL LOGIC: Run mongorestore command here
     res.json({ success: true, message: 'Backup restored successfully.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// 6. DELETE A BACKUP
 app.delete('/api/admin/delete-backup/:backupId', protect, async (req, res) => {
   try {
     const { backupId } = req.params;
-    console.log(`🗑️ Deleting backup ID: ${backupId} by Admin: ${req.user.id}`);
-    // REAL LOGIC: fs.unlinkSync the file here
     res.json({ success: true, message: 'Backup deleted successfully.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// 7. SAVE BACKUP SCHEDULE
 app.put('/api/admin/backup-schedule', protect, async (req, res) => {
   try {
     const { frequency, time, retentionDays, storagePath, emailNotification } = req.body;
-    console.log('📅 Backup schedule config updated:', req.body);
-    // REAL LOGIC: Save to a 'Settings' MongoDB document
-    res.json({ success: true, message: 'Backup schedule saved successfully.' });
+
+    const Settings = mongoose.model('Settings', new mongoose.Schema({
+      frequency: String,
+      time: String,
+      retentionDays: Number,
+      storagePath: String,
+      emailNotification: Boolean
+    }));
+
+    const updatedSettings = await Settings.findOneAndUpdate(
+      {},
+      { frequency, time, retentionDays, storagePath, emailNotification },
+      { upsert: true, new: true }
+    );
+
+    res.json({
+      success: true,
+      message: 'Backup schedule saved successfully.',
+      data: updatedSettings
+    });
   } catch (error) {
+    console.error('❌ Error saving backup schedule:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// ==================== START SERVER ====================
+app.use(express.static(path.join(__dirname, 'dist')));
+
+app.get(/^\/(?!api).*/, (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 Server running on:
    - http://localhost:${PORT}
    - http://192.168.1.36:${PORT}`);
-});// Brevo fix
+});
