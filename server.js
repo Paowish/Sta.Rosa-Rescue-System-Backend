@@ -602,7 +602,7 @@ app.delete('/api/admin/delete-user/:userId', protect, async (req, res) => {
   }
 });
 
-// ✅ Update User
+// ✅ Update User (With Clean Error Handling)
 app.put('/api/admin/update-user/:userId', protect, async (req, res) => {
   try {
     // Only allow admin to update users
@@ -612,13 +612,28 @@ app.put('/api/admin/update-user/:userId', protect, async (req, res) => {
 
     const { firstName, lastName, email, phoneNumber, role, isApproved, password } = req.body;
 
+    // 1. Check if the NEW email already exists in the database (Belongs to someone else)
+    if (email) {
+      const existingUser = await User.findOne({
+        email: email,
+        _id: { $ne: req.params.userId } // Look for this email, but not this user's ID
+      });
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: "This email is already in use by another account. Please use a different email."
+        });
+      }
+    }
+
     const updateData = {
       firstName,
       lastName,
       email,
       phoneNumber,
       role: role || 'volunteer',
-      isApproved: isApproved !== undefined ? isApproved : true
+      isApproved: isApproved !== undefined ? isApproved : true,
+      applicationStatus: isApproved !== undefined ? (isApproved ? 'approved' : 'pending') : 'approved'
     };
 
     // Only hash password if provided
@@ -649,12 +664,22 @@ app.put('/api/admin/update-user/:userId', protect, async (req, res) => {
       message: 'User updated successfully',
       data: user
     });
+
   } catch (error) {
     console.error('❌ Update user error:', error);
-    res.status(500).json({ success: false, message: error.message });
+
+    // 🛑 Specific handler for MongoDB Duplicate Key Error
+    if (error.code === 11000 || (error.message && error.message.includes("E11000 duplicate key error"))) {
+      return res.status(400).json({
+        success: false,
+        message: "This email is already taken. Please use a different email address."
+      });
+    }
+
+    // Fallback error
+    res.status(500).json({ success: false, message: error.message || 'Failed to update user' });
   }
 });
-
 
 
 // Volunteer declines dispatch
