@@ -448,6 +448,76 @@ const registrationUpload = multer({
   }
 });
 
+
+// ==================== VOLUNTEER PROFILE UPDATE ROUTE ====================
+app.put('/api/volunteer/profile', protect, async (req, res) => {
+  try {
+    const { firstName, lastName, phoneNumber, address, certifications, availability, description } = req.body;
+    const userId = req.user.id;
+
+    console.log(`📝 Updating profile for volunteer: ${userId}`);
+
+    // 1. Update User model
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        firstName: firstName || req.user.firstName,
+        lastName: lastName || req.user.lastName,
+        phoneNumber: phoneNumber || req.user.phoneNumber,
+      },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // 2. Update VolunteerApplication model (if exists)
+    const application = await VolunteerApplication.findOneAndUpdate(
+      { userId: userId },
+      {
+        firstName: firstName || user.firstName,
+        lastName: lastName || user.lastName,
+        phoneNumber: phoneNumber || user.phoneNumber,
+        address1: address || user.address,
+        certifications: certifications || [],
+        availability: availability || [],
+        description: description || '',
+      },
+      { new: true }
+    );
+
+    // 3. ✅ 🔥 EMIT SOCKET EVENT TO RESCUE TEAM
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('volunteer_application_updated', {
+        volunteerId: userId,
+        timestamp: new Date()
+      });
+      console.log(`📢 Socket event 'volunteer_application_updated' emitted for ${userId}`);
+    }
+
+    // 4. Notify the volunteer themselves
+    await createNotification(
+      userId,
+      'system_announcement',
+      'Profile Updated',
+      'Your profile has been updated successfully.',
+      { userId }
+    );
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: user
+    });
+
+  } catch (error) {
+    console.error('❌ Profile update error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ==================== AUTH ROUTES ====================
 
 
@@ -1981,7 +2051,7 @@ app.put('/api/volunteers/applications/:id/review', protect, async (req, res) => 
   }
 });
 
-// server.js - Add this endpoint
+// server.js - Fixed endpoint to include profileImage
 app.get('/api/admin/all-volunteers', protect, async (req, res) => {
   try {
     const allowedRoles = ['admin', 'dispatcher', 'responder'];
@@ -1999,17 +2069,14 @@ app.get('/api/admin/all-volunteers', protect, async (req, res) => {
       const application = applications.find(app => app.email === volunteer.email);
       return {
         ...volunteer.toObject(),
+        // ✅ Pass the profileImage directly from the User model
+        profileImage: volunteer.profileImage || null,
         application: application ? {
           ...application.toObject(),
           files: application.files || []
         } : null
       };
     });
-
-    console.log(`📊 Found ${volunteersWithApps.length} total volunteers`);
-    console.log(`   Pending: ${volunteersWithApps.filter(v => v.applicationStatus === 'pending').length}`);
-    console.log(`   Approved: ${volunteersWithApps.filter(v => v.applicationStatus === 'approved').length}`);
-    console.log(`   Rejected: ${volunteersWithApps.filter(v => v.applicationStatus === 'rejected').length}`);
 
     res.json({ success: true, data: volunteersWithApps });
   } catch (error) {
