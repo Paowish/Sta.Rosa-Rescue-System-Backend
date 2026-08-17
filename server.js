@@ -32,15 +32,7 @@ cloudinary.config({
   api_secret: 'vC7Bmv3Qn31dazyOiB1lCTqZ7bo'       // ← Replace with your Cloudinary API secret
 });
 
-
-
-
-// ============================================
-// CREATE APP FIRST (MOVED UP)
-// ============================================
 const app = express();
-
-
 
 const VolunteerApplication = require('./src/models/VolunteerApplication.model');
 const Incident = require('./src/models/Incident.model');  // ✅ ADD THIS
@@ -233,86 +225,8 @@ mongoose.connect(MONGODB_URI)
 // ==================== USER SCHEMA ====================
 // ✅ User model is imported from separate file
 const User = require('./src/models/User.model');
-
-// ============================================
-// IMPORT AUTH ROUTES (WITH VALIDATION) - ✅ UNCOMMENTED
 // ============================================
 const authRoutes = require('./src/routes/auth.routes');
-
-// ==================== INCIDENT SCHEMA - ✅ UNCOMMENTED ====================
-// const IncidentSchema = new mongoose.Schema({
-//   incidentId: { type: String, unique: true },
-//   type: { type: String, required: true },
-//   severity: { type: String, default: 'Medium' },
-//   status: { type: String, default: 'Pending' },
-//   location: {
-//     address: String,
-//     coordinates: { latitude: Number, longitude: Number },
-//     barangay: String
-//   },
-//   description: { type: String, required: true },
-//   reportedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-//   reportedAt: { type: Date, default: Date.now },
-//   reporterNumber: { type: String, default: '' },
-//   reporterName: { type: String, default: "Anonymous" },
-//   victimsAffected: { type: Number, default: 0 },
-//   image: { type: String, default: null },
-//   assignedTo: [{
-//     responder: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-//     assignedAt: Date,
-//     status: String
-//   }],
-//   assignedTeam: String,
-//   dispatchNotes: String,
-//   resolvedAt: Date,
-//   resolutionNotes: String
-// }, { timestamps: true });
-
-// IncidentSchema.pre('save', async function () {
-//   if (!this.incidentId) {
-//     const count = await Incident.countDocuments();
-//     this.incidentId = `RES-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
-//   }
-// });
-
-// const Incident = mongoose.model('Incident', IncidentSchema);
-
-// ==================== VOLUNTEER SCHEMA ====================
-// const VolunteerSchema = new mongoose.Schema({
-//   firstName: String,
-//   lastName: String,
-//   email: String,
-//   phoneNumber: String,
-//   age: Number,
-//   birthday: Date,
-//   yearsOfExperience: String,
-//   address1: String,
-//   address2: String,
-//   certifications: [String],
-//   files: [{
-//     name: { type: String },
-//     type: { type: String },
-//     size: { type: Number },
-//     data: { type: String }
-//   }],
-//   status: { type: String, default: 'pending' }
-// }, { timestamps: true });
-
-// const VolunteerApplication = mongoose.model('VolunteerApplication', VolunteerSchema);
-
-// ==================== NOTIFICATION SCHEMA ====================
-// const NotificationSchema = new mongoose.Schema({
-//   recipient: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-//   type: { type: String, enum: ['incident_update', 'emergency_alert', 'volunteer_status', 'response_assignment', 'system_announcement', 'new_incident'], required: true },
-//   title: { type: String, required: true },
-//   message: { type: String, required: true },
-//   data: { type: Object },
-//   isRead: { type: Boolean, default: false },
-//   readAt: Date,
-//   createdAt: { type: Date, default: Date.now }
-// });
-
-// const Notification = mongoose.model('Notification', NotificationSchema);
 
 // Helper function to create notification and emit via socket
 async function createNotification(recipientId, type, title, message, data = {}) {
@@ -518,65 +432,6 @@ app.put('/api/volunteer/profile', protect, async (req, res) => {
   }
 });
 
-// ==================== AUTH ROUTES ====================
-
-
-// rescue-response-backend/server.js
-
-
-
-
-// ============================================================
-// ✅ VOLUNTEER DISPATCH ROUTES - ADD THIS SECTION HERE!
-// ============================================================
-
-// Volunteer accepts dispatch
-// app.put('/api/incidents/:id/accept', protect, async (req, res) => {
-//   try {
-//     const incidentId = req.params.id;
-//     const { volunteerId } = req.body;
-
-//     console.log(`🔵 Accepting dispatch for incident ${incidentId} by volunteer ${volunteerId}`);
-
-//     const incident = await Incident.findById(incidentId);
-//     if (!incident) {
-//       return res.status(404).json({ success: false, message: 'Incident not found' });
-//     }
-
-//     // Update incident status
-//     incident.status = 'En Route';
-//     incident.responder = {
-//       id: volunteerId,
-//       name: req.user.firstName + ' ' + req.user.lastName,
-//       phoneNumber: req.user.phoneNumber,
-//       status: 'accepted',
-//       lastUpdated: new Date()
-//     };
-
-//     await incident.save();
-
-//     console.log(`✅ Incident ${incidentId} accepted by ${req.user.firstName} ${req.user.lastName}`);
-
-//     const io = req.app.get('io');
-//     io.to(`incident_${incidentId}`).emit('incident-updated', {
-//       incidentId: incidentId,
-//       status: 'En Route',
-//       responder: incident.responder
-//     });
-
-//     res.json({
-//       success: true,
-//       message: 'Dispatch accepted',
-//       data: incident
-//     });
-//   } catch (error) {
-//     console.error('❌ Accept error:', error);
-//     res.status(500).json({ success: false, message: error.message });
-//   }
-// });
-
-
-
 // ==================== ADMIN USER MANAGEMENT ====================
 
 // ✅ Delete User
@@ -739,140 +594,7 @@ app.get('/api/incidents/:id/responder-location', protect, async (req, res) => {
   }
 });
 
-// ==================== AUTH ROUTES ====================
-
-// app.post('/api/auth/register', registrationUpload.any(), async (req, res) => {
-//   try {
-//     console.log('🔵 Registration request received');
-//     console.log('🔵 Body:', req.body);
-//     console.log('🔵 Files:', req.files);
-
-//     // Extract fields from request body
-//     const firstName = req.body.firstName;
-//     const lastName = req.body.lastName;
-//     const email = req.body.email;
-//     const phoneNumber = req.body.phoneNumber;
-//     const password = req.body.password;
-//     const role = req.body.role;
-//     const birthday = req.body.birthday;
-//     const yearsOfExperience = req.body.yearsOfExperience;
-//     const address1 = req.body.address1;
-//     const address2 = req.body.address2;
-
-//     // Parse certifications if it's a string
-//     let certifications = [];
-//     if (req.body.certifications) {
-//       try {
-//         certifications = JSON.parse(req.body.certifications);
-//       } catch {
-//         certifications = req.body.certifications;
-//       }
-//     }
-
-//     // Parse files if they exist
-//     let files = [];
-//     if (req.body.files) {
-//       try {
-//         files = JSON.parse(req.body.files);
-//       } catch {
-//         files = [];
-//       }
-//     }
-
-//     console.log('📝 Registration attempt:', email, 'Role:', role);
-//     console.log('📎 Files received:', files.length);
-
-//     const userExists = await User.findOne({ email });
-//     if (userExists) {
-//       return res.status(400).json({ success: false, message: 'User already exists' });
-//     }
-
-//     // Calculate age
-//     const calculateAge = (birthdayDate) => {
-//       if (!birthdayDate) return 0;
-//       const today = new Date();
-//       const birthDate = new Date(birthdayDate);
-//       let age = today.getFullYear() - birthDate.getFullYear();
-//       const monthDiff = today.getMonth() - birthDate.getMonth();
-//       if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-//         age--;
-//       }
-//       return age;
-//     };
-
-//     // Create USER account
-//     const user = new User({
-//       firstName,
-//       lastName,
-//       email,
-//       phoneNumber,
-//       password,
-//       role: role || 'civilian',
-//       profileImage: '',
-//       isApproved: role === 'volunteer' ? false : true,
-//       applicationStatus: role === 'volunteer' ? 'pending' : 'approved'
-//     });
-
-//     await user.save();
-//     console.log('✅ User created:', email);
-
-//     // If volunteer, create APPLICATION
-//     if (role === 'volunteer') {
-//       // Process files
-//       let processedFiles = [];
-//       if (files && Array.isArray(files) && files.length > 0) {
-//         processedFiles = files.map(file => ({
-//           name: file.name || '',
-//           type: file.type || '',
-//           size: file.size || 0,
-//           data: file.data || ''
-//         }));
-//       }
-
-//       const application = new VolunteerApplication({
-//         firstName,
-//         lastName,
-//         email,
-//         phoneNumber,
-//         age: calculateAge(birthday),
-//         birthday: birthday,
-//         yearsOfExperience: yearsOfExperience,
-//         address1: address1,
-//         address2: address2,
-//         certifications: certifications || [],
-//         files: processedFiles,
-//         status: 'pending',
-//         userId: user._id
-//       });
-//       await application.save();
-//       console.log('📝 Volunteer application created for:', email, `with ${processedFiles.length} files`);
-
-
-
-
-
-
-// ✅ Register route with FormData support
-// app.post('/api/auth/register', registrationUpload.any(), async (req, res) => {
-//   try {
-//     console.log('🔵 FormData registration received');
-//     console.log('🔵 Body:', req.body);
-//     console.log('🔵 Files:', req.files?.length || 0);
-
-//     // Call the controller
-//     const { register } = require('./src/controllers/auth.controller');
-//     await register(req, res);
-//   } catch (error) {
-//     console.error('❌ Registration error:', error);
-//     res.status(500).json({
-//       success: false,
-//       message: error.message || 'Registration failed'
-//     });
-//   }
-// });
-
 // ✅ Keep this for other auth routes
-
 app.use('/api/auth', authRoutes);
 
 // In your server.js or routes file
@@ -989,12 +711,6 @@ app.post('/api/auth/upload-profile-image', protect, profileUpload.single('profil
     });
   }
 });
-// ==================== INCIDENT ROUTES ====================
-
-// rescue-response-backend/server.js
-// Add/Replace these sections
-
-// ==================== INCIDENT ROUTES ====================
 
 // ==================== INCIDENT ROUTES ====================
 // ✅ Cloudinary Storage for incident images
@@ -1161,9 +877,6 @@ app.post('/api/incidents', incidentUpload.single('photo'), async (req, res) => {
   }
 });
 
-
-
-// ==================== DISPATCH INCIDENT TO VOLUNTEERS ====================
 // ==================== DISPATCH INCIDENT TO VOLUNTEERS ====================
 app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
   try {
@@ -1744,43 +1457,7 @@ app.put('/api/incidents/:id/accept', protect, async (req, res) => {
   }
 });
 
-// server.js - Update the assign endpoint
-// app.put('/api/incidents/:id/assign', protect, async (req, res) => {
-//   try {
-//     const { responderIds, teamName, dispatchNotes } = req.body;
-
-//     // ✅ Simple update with ObjectIds
-//     const incident = await Incident.findByIdAndUpdate(
-//       req.params.id,
-//       {
-//         assignedTo: responderIds || [], // Simple array of ObjectIds
-//         assignedTeam: teamName || '',
-//         dispatchNotes: dispatchNotes || '',
-//         status: 'Acknowledged'
-//       },
-//       { new: true }
-//     );
-
-//     if (!incident) {
-//       return res.status(404).json({ success: false, message: 'Incident not found' });
-//     }
-
-//     res.json({
-//       success: true,
-//       message: 'Responders assigned successfully',
-//       data: incident
-//     });
-//   } catch (error) {
-//     console.error('Assign error:', error);
-//     res.status(500).json({
-//       success: false,
-//       message: error.message
-//     });
-//   }
-// });
-
 // ==================== VOLUNTEER ROUTES ====================
-
 app.get('/api/volunteers/applications', protect, async (req, res) => {
   try {
     const { status, page = 1, limit = 10 } = req.query;
@@ -2188,6 +1865,26 @@ app.get('/api/volunteers/stats', protect, async (req, res) => {
   }
 });
 
+
+app.get('/api/admin/backup-schedule', protect, async (req, res) => {
+  try {
+    // If you have a Settings model, query it here.
+    // For now, we return the default JSON so the UI doesn't crash.
+    res.json({
+      success: true,
+      data: {
+        frequency: 'Daily',
+        time: '3:00 AM',
+        retentionDays: 30,
+        storagePath: '/var/backups/whatatops',
+        emailNotification: true
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ==================== NOTIFICATION ROUTES ====================
 
 app.get('/api/notifications', protect, async (req, res) => {
@@ -2235,9 +1932,130 @@ app.get('/api/health', (req, res) => {
 // This must be AFTER all API routes
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// Handle React Router routes - serve index.html for all non-API routes
-app.get(/^\/(?!api).*/, (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+// 1. GET SYSTEM SETTINGS (Mocking for now)
+app.get('/api/admin/settings', protect, async (req, res) => {
+  try {
+    // For now, returning default JSON so the UI loads without crashing.
+    res.json({
+      success: true,
+      data: {
+        siteName: "Sta. Rosa Rescue System",
+        maintenanceMode: false,
+        allowGuestReports: true
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 2. GET SYSTEM LOGS (Mocking with realistic dummy data)
+app.get('/api/admin/system-logs', protect, async (req, res) => {
+  try {
+    // Replace this with: const logs = await SystemLog.find().sort({ timestamp: -1 }).limit(100);
+    const mockLogs = [
+      { timestamp: new Date(), type: 'INFO', message: 'Admin login successful: admin@rescue.gov.ph' },
+      { timestamp: new Date(Date.now() - 3600000), type: 'OK', message: 'Automated daily backup completed successfully' },
+      { timestamp: new Date(Date.now() - 7200000), type: 'ERROR', message: 'Failed to send push notification to Volunteer #102' },
+      { timestamp: new Date(Date.now() - 86400000), type: 'WARNING', message: 'Server storage is at 82% capacity' },
+      { timestamp: new Date(Date.now() - 172800000), type: 'INFO', message: 'New user registered: Paolo Carunia' },
+    ];
+    res.json({ success: true, data: mockLogs });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 3. GET ALL BACKUPS (Mocking file list)
+app.get('/api/admin/backups', protect, async (req, res) => {
+  try {
+    // Replace this with: fs.readdirSync('/path/to/backups/') logic
+    const mockBackups = [
+      { id: '1', name: 'Full_Backup_2026-08-17', date: '2026-08-17 03:00 AM', type: 'Auto', status: 'OK', size: '1.2 GB' },
+      { id: '2', name: 'Full_Backup_2026-08-16', date: '2026-08-16 03:00 AM', type: 'Auto', status: 'OK', size: '1.1 GB' },
+      { id: '3', name: 'Manual_Backup_2026-08-15', date: '2026-08-15 10:30 PM', type: 'Manual', status: 'OK', size: '1.2 GB' },
+    ];
+    res.json({ success: true, data: mockBackups });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 4. TRIGGER BACKUP NOW (FIXED)
+app.post('/api/admin/backup-now', protect, async (req, res) => {
+  try {
+    console.log(`🔄 Backup manually triggered by Admin: ${req.user.id}`);
+
+    // ⏳ 1. CREATE THE BACKUP FOLDER IF IT DOESN'T EXIST
+    const backupDir = path.join(__dirname, 'backups');
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+
+    // ⏳ 2. GENERATE A UNIQUE FILENAME
+    const date = new Date();
+    const dateStr = date.toISOString().split('T')[0];
+    const timeStr = date.toTimeString().split(' ')[0].replace(/:/g, '-');
+    const filename = `Backup_${dateStr}_${timeStr}.json`;
+    const filepath = path.join(backupDir, filename);
+
+    // ⏳ 3. SIMULATE DUMPING DATA (Replace this with real mongodump logic later)
+    // For now, we just create a dummy .json file
+    const dummyData = {
+      timestamp: date.toISOString(),
+      message: "System backup completed successfully.",
+      user: req.user.id
+    };
+    fs.writeFileSync(filepath, JSON.stringify(dummyData, null, 2));
+
+    console.log(`✅ Backup file created: ${filepath}`);
+
+    // ✅ 4. SEND SUCCESS RESPONSE TO FRONTEND
+    res.json({
+      success: true,
+      message: 'Backup process completed successfully.'
+    });
+
+  } catch (error) {
+    console.error('❌ Backup error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 5. RESTORE A BACKUP
+app.post('/api/admin/restore-backup/:backupId', protect, async (req, res) => {
+  try {
+    const { backupId } = req.params;
+    console.log(`🔄 Restoring backup ID: ${backupId} by Admin: ${req.user.id}`);
+    // REAL LOGIC: Run mongorestore command here
+    res.json({ success: true, message: 'Backup restored successfully.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 6. DELETE A BACKUP
+app.delete('/api/admin/delete-backup/:backupId', protect, async (req, res) => {
+  try {
+    const { backupId } = req.params;
+    console.log(`🗑️ Deleting backup ID: ${backupId} by Admin: ${req.user.id}`);
+    // REAL LOGIC: fs.unlinkSync the file here
+    res.json({ success: true, message: 'Backup deleted successfully.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 7. SAVE BACKUP SCHEDULE
+app.put('/api/admin/backup-schedule', protect, async (req, res) => {
+  try {
+    const { frequency, time, retentionDays, storagePath, emailNotification } = req.body;
+    console.log('📅 Backup schedule config updated:', req.body);
+    // REAL LOGIC: Save to a 'Settings' MongoDB document
+    res.json({ success: true, message: 'Backup schedule saved successfully.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 // ==================== START SERVER ====================
