@@ -1755,7 +1755,6 @@ app.get('/api/admin/backups', protect, async (req, res) => {
 app.post('/api/admin/backup-now', protect, async (req, res) => {
   try {
     const backupDir = path.join(__dirname, 'backups');
-
     if (!fs.existsSync(backupDir)) {
       fs.mkdirSync(backupDir, { recursive: true });
     }
@@ -1766,12 +1765,21 @@ app.post('/api/admin/backup-now', protect, async (req, res) => {
     const filename = `Backup_${dateStr}_${timeStr}.json`;
     const filepath = path.join(backupDir, filename);
 
-    const dummyData = {
-      timestamp: date.toISOString(),
-      message: "System backup completed successfully.",
-      user: req.user.id
-    };
-    fs.writeFileSync(filepath, JSON.stringify(dummyData, null, 2));
+    // ✅ REAL BACKUP LOGIC: Dump MongoDB to this file
+    const { exec } = require('child_process');
+    const mongodumpCmd = `mongodump --uri="${process.env.MONGODB_URI}" --archive="${filepath}"`;
+
+    // Run mongodump and wait for it to finish
+    await new Promise((resolve, reject) => {
+      exec(mongodumpCmd, (error, stdout, stderr) => {
+        if (error) {
+          console.error(`❌ mongodump error: ${error.message}`);
+          return reject(error);
+        }
+        console.log(`✅ mongodump stdout: ${stdout}`);
+        resolve();
+      });
+    });
 
     // ✅ 1. Fetch all Admin/Rescue Team users
     const rescueTeam = await User.find({
