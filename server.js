@@ -1765,29 +1765,35 @@ app.post('/api/admin/backup-now', protect, async (req, res) => {
     const filename = `Backup_${dateStr}_${timeStr}.json`;
     const filepath = path.join(backupDir, filename);
 
-    // ✅ REAL BACKUP LOGIC: Dump MongoDB to this file
-    const { exec } = require('child_process');
-    const mongodumpCmd = `mongodump --uri="${process.env.MONGODB_URI}" --archive="${filepath}"`;
+    console.log(`📦 Starting backup to: ${filepath}`);
 
-    // Run mongodump and wait for it to finish
-    await new Promise((resolve, reject) => {
-      exec(mongodumpCmd, (error, stdout, stderr) => {
-        if (error) {
-          console.error(`❌ mongodump error: ${error.message}`);
-          return reject(error);
-        }
-        console.log(`✅ mongodump stdout: ${stdout}`);
-        resolve();
-      });
-    });
+    // ✅ NATIVE NODE.JS BACKUP (NO mongodump REQUIRED)
+    // 1. Get all collections from the database
+    const db = mongoose.connection.db;
+    const collections = await db.listCollections().toArray();
 
-    // ✅ 1. Fetch all Admin/Rescue Team users
+    const backupData = {};
+    const collectionNames = collections.map(c => c.name);
+
+    // 2. Iterate through each collection and fetch all documents
+    for (const name of collectionNames) {
+      const collection = db.collection(name);
+      const docs = await collection.find({}).toArray();
+      backupData[name] = docs;
+    }
+
+    // 3. Write the complete database dump to the .json file
+    fs.writeFileSync(filepath, JSON.stringify(backupData, null, 2));
+
+    console.log(`✅ Backup completed! File size: ${(fs.statSync(filepath).size / 1024 / 1024).toFixed(2)} MB`);
+
+    // ✅ 4. Fetch all Admin/Rescue Team users
     const rescueTeam = await User.find({
       role: { $in: ['admin', 'dispatcher', 'responder'] },
       isActive: true
     });
 
-    // ✅ 2. Send a notification to EACH rescue team member
+    // ✅ 5. Send a notification to EACH rescue team member
     for (const member of rescueTeam) {
       await createNotification(
         member._id,
@@ -1798,7 +1804,7 @@ app.post('/api/admin/backup-now', protect, async (req, res) => {
       );
     }
 
-    // ✅ 3. Send success response to the frontend
+    // ✅ 6. Send success response to the frontend
     res.json({
       success: true,
       message: 'Backup process completed successfully.'
