@@ -166,6 +166,7 @@ app.use(cors({
     }
   },
   credentials: true,
+  optionsSuccessStatus: 200,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
@@ -1537,8 +1538,8 @@ app.get('/api/admin/all-users', protect, async (req, res) => {
       return res.status(403).json({ success: false, message: 'Rescue team access required' });
     }
 
-    // Fetch ALL users, not just volunteers
-    const allUsers = await User.find({}).select('-password');
+    // ✅ CRITICAL FIX: Limit to the latest 100 users to prevent timeout
+    const allUsers = await User.find({}).select('-password').sort({ createdAt: -1 }).limit(100);
 
     const applications = await VolunteerApplication.find({}).sort({ createdAt: -1 });
 
