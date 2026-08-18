@@ -14,7 +14,7 @@ const { sendVolunteerAccepted, sendVolunteerRejected } = require('./src/services
 const dns = require("dns");
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
-require('dotenv').config();
+require('dotenv').config({ path: '/etc/secrets/.env' });
 
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -166,7 +166,6 @@ app.use(cors({
     }
   },
   credentials: true,
-  optionsSuccessStatus: 200,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
@@ -1530,7 +1529,6 @@ app.put('/api/volunteers/applications/:id/review', protect, async (req, res) => 
   }
 });
 
-// ✅ GET ALL USERS (ALL ROLES) - For User Account Management
 app.get('/api/admin/all-users', protect, async (req, res) => {
   try {
     const allowedRoles = ['admin', 'dispatcher', 'responder'];
@@ -1538,24 +1536,15 @@ app.get('/api/admin/all-users', protect, async (req, res) => {
       return res.status(403).json({ success: false, message: 'Rescue team access required' });
     }
 
-    // ✅ CRITICAL FIX: Limit to the latest 100 users to prevent timeout
-    const allUsers = await User.find({}).select('-password').sort({ createdAt: -1 }).limit(100);
+    // ✅ FAST: Fetch ONLY the users, no application join
+    const allUsers = await User.find({})
+      .select('-password -resetPasswordToken -resetPasswordExpires')
+      .sort({ createdAt: -1 })
+      .limit(50) // Keep a safe limit
+      .lean();
 
-    const applications = await VolunteerApplication.find({}).sort({ createdAt: -1 });
-
-    const usersWithApps = allUsers.map(user => {
-      const application = applications.find(app => app.email === user.email);
-      return {
-        ...user.toObject(),
-        profileImage: user.profileImage || null,
-        application: application ? {
-          ...application.toObject(),
-          files: application.files || []
-        } : null
-      };
-    });
-
-    res.json({ success: true, data: usersWithApps });
+    // ✅ FAST: Return just the users
+    res.json({ success: true, data: allUsers });
   } catch (error) {
     console.error('Error getting all users:', error);
     res.status(500).json({ success: false, message: error.message });
