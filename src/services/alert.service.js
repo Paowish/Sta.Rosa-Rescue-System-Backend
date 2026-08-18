@@ -35,7 +35,7 @@ exports.sendEmergencyPush = async (subscription, volunteerName, incidentData) =>
         icon: "/logo.png",
         badge: "/badge.png",
         vibrate: [200, 100, 200, 100, 200],
-        sound: "/siren.mp3", // 🔔 Put your siren.mp3 file in React's public folder!
+        sound: "/emergencysound.mp3", // 🔔 Put your siren.mp3 file in React's public folder!
         requireInteraction: true,
         data: {
             url: process.env.FRONTEND_URL + "/volunteer-dashboard",
