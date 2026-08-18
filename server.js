@@ -14,7 +14,7 @@ const { sendVolunteerAccepted, sendVolunteerRejected } = require('./src/services
 const dns = require("dns");
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
-require('dotenv').config({ path: '/etc/secrets/.env' });
+require('dotenv').config();
 
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
