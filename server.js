@@ -1772,6 +1772,24 @@ app.post('/api/admin/backup-now', protect, async (req, res) => {
     };
     fs.writeFileSync(filepath, JSON.stringify(dummyData, null, 2));
 
+    // ✅ 1. Fetch all Admin/Rescue Team users
+    const rescueTeam = await User.find({
+      role: { $in: ['admin', 'dispatcher', 'responder'] },
+      isActive: true
+    });
+
+    // ✅ 2. Send a notification to EACH rescue team member
+    for (const member of rescueTeam) {
+      await createNotification(
+        member._id,
+        'system_announcement',
+        '✅ Backup Completed',
+        `A new system backup has been created successfully.`,
+        { type: 'backup' }
+      );
+    }
+
+    // ✅ 3. Send success response to the frontend
     res.json({
       success: true,
       message: 'Backup process completed successfully.'
