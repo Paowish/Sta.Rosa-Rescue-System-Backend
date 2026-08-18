@@ -1529,24 +1529,24 @@ app.put('/api/volunteers/applications/:id/review', protect, async (req, res) => 
   }
 });
 
-app.get('/api/admin/all-volunteers', protect, async (req, res) => {
+// ✅ GET ALL USERS (ALL ROLES) - For User Account Management
+app.get('/api/admin/all-users', protect, async (req, res) => {
   try {
     const allowedRoles = ['admin', 'dispatcher', 'responder'];
     if (!allowedRoles.includes(req.user.role)) {
       return res.status(403).json({ success: false, message: 'Rescue team access required' });
     }
 
-    const allVolunteers = await User.find({
-      role: 'volunteer'
-    }).select('-password');
+    // Fetch ALL users, not just volunteers
+    const allUsers = await User.find({}).select('-password');
 
     const applications = await VolunteerApplication.find({}).sort({ createdAt: -1 });
 
-    const volunteersWithApps = allVolunteers.map(volunteer => {
-      const application = applications.find(app => app.email === volunteer.email);
+    const usersWithApps = allUsers.map(user => {
+      const application = applications.find(app => app.email === user.email);
       return {
-        ...volunteer.toObject(),
-        profileImage: volunteer.profileImage || null,
+        ...user.toObject(),
+        profileImage: user.profileImage || null,
         application: application ? {
           ...application.toObject(),
           files: application.files || []
@@ -1554,9 +1554,73 @@ app.get('/api/admin/all-volunteers', protect, async (req, res) => {
       };
     });
 
-    res.json({ success: true, data: volunteersWithApps });
+    res.json({ success: true, data: usersWithApps });
   } catch (error) {
-    console.error('Error getting all volunteers:', error);
+    console.error('Error getting all users:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ EXPORT USERS TO EXCEL (Real functional route)
+app.get('/api/admin/export-users', protect, async (req, res) => {
+  try {
+    const { type, role } = req.query;
+    let filter = {};
+
+    // 1. Apply role filter (CASE-INSENSITIVE MATCH)
+    if (role && role !== 'all') {
+      filter.role = { $regex: new RegExp(`^${role}$`, 'i') }; // ✅ Case-insensitive match
+    }
+
+    // 2. Apply status filter based on 'type' (all, active, inactive)
+    if (type === 'active') {
+      filter.isApproved = true;
+      filter.applicationStatus = 'approved';
+    } else if (type === 'inactive') {
+      filter.isApproved = false;
+    }
+
+    // 3. Fetch users from database
+    const users = await User.find(filter).select(
+      'firstName lastName email phoneNumber role isApproved applicationStatus lastLogin createdAt'
+    );
+
+    // 4. Format data for Excel
+    const excelData = users.map(user => ({
+      'First Name': user.firstName || '',
+      'Last Name': user.lastName || '',
+      'Full Name': `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+      'Email': user.email || '',
+      'Phone Number': user.phoneNumber || 'N/A',
+      'Role': user.role?.toUpperCase() || 'VOLUNTEER',
+      'Status': user.isApproved ? 'ACTIVE' : (user.applicationStatus === 'rejected' ? 'REJECTED' : 'PENDING'),
+      'Last Login': user.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : '-',
+      'Date Registered': user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '-'
+    }));
+
+    // 5. Generate Excel file using xlsx
+    const XLSX = require('xlsx');
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(excelData);
+
+    // Auto-size columns
+    const colWidths = [
+      { wch: 15 }, { wch: 15 }, { wch: 25 }, { wch: 30 },
+      { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 15 }
+    ];
+    ws['!cols'] = colWidths;
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Users');
+
+    // 6. Generate buffer and send as download
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    res.setHeader('Content-Disposition', `attachment; filename=users_${type}_${new Date().toISOString().split('T')[0]}.xlsx`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buffer);
+
+  } catch (error) {
+    console.error('❌ Export error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -1867,6 +1931,23 @@ app.use(express.static(path.join(__dirname, 'dist')));
 
 app.get(/^\/(?!api).*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
+// 🔍 DEBUG: Check exact database roles
+app.get('/api/admin/debug-roles', protect, async (req, res) => {
+  try {
+    const distinctRoles = await User.distinct('role');
+    const roleCounts = await User.aggregate([
+      { $group: { _id: '$role', count: { $sum: 1 } } }
+    ]);
+    res.json({
+      success: true,
+      distinctRoles,
+      roleCounts
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 const PORT = process.env.PORT || 5000;
