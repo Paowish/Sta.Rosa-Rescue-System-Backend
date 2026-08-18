@@ -176,7 +176,9 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(noSqlSanitizer);
 app.use(xssSanitizer);
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/rescue-response-system';
+// ✅ TEMPORARY HARDCODED FIX FOR RENDER
+// ✅ HARDCODED FIX (No directConnection)
+const MONGODB_URI = 'mongodb+srv://caruniapaolovince_db_user:d6aq4TWv2V7LxEpw@cluster0.y4p1ld4.mongodb.net/rescue-response-system?retryWrites=true&w=majority&appName=Cluster0';
 
 mongoose.connect(MONGODB_URI)
   .then(() => console.log('✅ MongoDB connected successfully'))
