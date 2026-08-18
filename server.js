@@ -1691,7 +1691,8 @@ app.get('/api/admin/settings', protect, async (req, res) => {
 // ✅ PURE REAL SYSTEM LOGS ROUTE (NO MOCK DATA, NO SEEDING)
 app.get('/api/admin/system-logs', protect, async (req, res) => {
   try {
-    const SystemLog = mongoose.model('SystemLog', new mongoose.Schema({
+    // ✅ SAFE GLOBAL MODEL DEFINITION (Prevents OverwriteModelError)
+    const SystemLog = mongoose.models.SystemLog || mongoose.model('SystemLog', new mongoose.Schema({
       timestamp: { type: Date, default: Date.now },
       type: { type: String, enum: ['INFO', 'OK', 'ERROR', 'WARNING'] },
       action: String,
