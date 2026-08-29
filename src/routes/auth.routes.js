@@ -4,6 +4,10 @@ const router = express.Router();
 const multer = require('multer');
 const { protect } = require('../middleware/auth.middleware');
 const { validateLogin } = require('../middleware/validation.middleware');
+const { OAuth2Client } = require('google-auth-library');
+const jwt = require('jsonwebtoken');
+const User = require('../models/User.model');
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const {
     register,
     login,
@@ -58,6 +62,55 @@ router.post('/reset-password/:token', resetPassword);
 // ✅ Register - uses multer to parse FormData
 router.post('/register', registrationUpload.any(), register);
 router.post('/login', validateLogin, login);
+
+// ✅ GOOGLE SIGN-IN / SIGN-UP ROUTE (ONLY ONE ROUTE HERE!)
+router.post('/google', async (req, res) => {
+    const { token } = req.body;
+    try {
+        const ticket = await client.verifyIdToken({
+            idToken: token,
+            audience: process.env.GOOGLE_CLIENT_ID,
+        });
+        const payload = ticket.getPayload();
+        const { sub, email, given_name, family_name, picture } = payload;
+
+        let user = await User.findOne({ email: email });
+        if (!user) {
+            user = new User({
+                googleId: sub,
+                email: email,
+                firstName: given_name,
+                lastName: family_name,
+                profileImage: picture,
+                role: 'civilian',
+                phoneNumber: '',
+                isApproved: true,
+                applicationStatus: 'approved',
+                isActive: true,
+                isVerified: true
+            });
+            await user.save();
+        } else {
+            user.googleId = sub;
+            user.firstName = given_name;
+            user.lastName = family_name;
+            if (picture) user.profileImage = picture;
+            await user.save();
+        }
+
+        // ✅ RENAMED TO AUTH_TOKEN TO AVOID CONFLICT WITH REQ.BODY TOKEN
+        const authToken = jwt.sign(
+            { id: user._id },
+            process.env.JWT_SECRET || 'mysecretkey',
+            { expiresIn: process.env.JWT_EXPIRE || '7d' }
+        );
+
+        res.status(200).json({ success: true, token: authToken, user: user });
+    } catch (error) {
+        console.error('Error verifying Google token:', error);
+        res.status(401).json({ success: false, message: 'Invalid Google token' });
+    }
+});
 
 // ============ PROTECTED ROUTES ============
 router.use(protect);

@@ -6,8 +6,9 @@ const userSchema = new mongoose.Schema({
   firstName: { type: String, required: true },
   lastName: { type: String, required: true },
   email: { type: String, required: true, unique: true },
-  phoneNumber: { type: String, required: true },
-  password: { type: String, required: true },
+  phoneNumber: { type: String, default: '' }, // ✅ Changed: Not required for Google users
+  password: { type: String, required: false }, // ✅ CHANGED: Not required for Google users
+  googleId: { type: String, default: null },   // ✅ ADD THIS
   role: {
     type: String,
     enum: ['civilian', 'volunteer', 'responder', 'admin', 'dispatcher'],
