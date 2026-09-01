@@ -3,7 +3,19 @@ const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
 const User = require('../src/models/User.model');
-const Team = require('../src/models/Team.model');
+
+// ✅ DEFINE TEAM MODEL HERE (No need for a separate Team.model.js file)
+const teamSchema = new mongoose.Schema({
+  name: { type: String, required: true, unique: true },
+  role: { type: String, required: true },
+  teamLeader: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  volunteerId: { type: String, required: true, unique: true },
+  members: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  specialties: [{ type: String }],
+  schedule: [{ type: String }]
+}, { timestamps: true });
+
+const Team = mongoose.model('Team', teamSchema);
 
 // ✅ Sample Users
 const users = [
@@ -19,7 +31,7 @@ const users = [
     isActive: true,
     profileImage: '',
   },
-  // Volunteer Users (for teams)
+  // Team Alpha
   {
     firstName: 'Mark',
     lastName: 'Chavez',
@@ -291,24 +303,23 @@ const users = [
   }
 ];
 
-// ✅ Team Definitions
-const getTeamDefinitions = (volunteers) => {
-  // Map volunteers by name for easy lookup
+// ✅ Team Definitions (Uses createdUsers to generate REAL ObjectIds)
+const getTeamDefinitions = (createdUsers) => {
+  // Map volunteers by email for unique lookup
   const volunteerMap = {};
-  volunteers.forEach(v => {
-    const key = `${v.firstName} ${v.lastName}`;
-    volunteerMap[key] = v;
+  createdUsers.forEach(v => {
+    volunteerMap[v.email] = v;
   });
 
-  // Helper to get volunteer IDs by name list
-  const getIds = (names) => {
-    return names.map(name => {
-      const volunteer = volunteerMap[name];
+  // Helper to get IDs based on email lists
+  const getIds = (emails) => {
+    return emails.map(email => {
+      const volunteer = volunteerMap[email];
       if (!volunteer) {
-        console.warn(`⚠️ Volunteer not found: ${name}`);
+        console.warn(`⚠️ Volunteer not found: ${email}`);
         return null;
       }
-      return volunteer._id;
+      return volunteer._id; // This is a REAL MongoDB ObjectId!
     }).filter(id => id !== null);
   };
 
@@ -316,36 +327,36 @@ const getTeamDefinitions = (volunteers) => {
     {
       name: 'Team Alpha',
       role: 'Search & Rescue',
-      teamLeader: volunteerMap['Mark Chavez']?._id || null,
+      teamLeader: volunteerMap['mark.chavez@volunteer.com']?._id || null,
       volunteerId: 'RES-001',
-      members: getIds(['Mark Chavez', 'Juan Dela Cruz', 'Ramon Santos', 'Miguel Reyes', 'Andres Gomez', 'Pedro Lopez']),
+      members: getIds(['mark.chavez@volunteer.com', 'juan.delacruz@volunteer.com', 'ramon.santos@volunteer.com', 'miguel.reyes@volunteer.com', 'andres.gomez@volunteer.com', 'pedro.lopez@volunteer.com']),
       specialties: ['First Aid', 'BLS/CPR', 'Water Rescue'],
       schedule: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
     },
     {
       name: 'Team Beta',
       role: 'Fire & Rescue',
-      teamLeader: volunteerMap['James Reyes']?._id || null,
+      teamLeader: volunteerMap['james.reyes@volunteer.com']?._id || null,
       volunteerId: 'RES-002',
-      members: getIds(['James Reyes', 'Mark Cruz', 'Ramon Mendoza', 'Albert Santos', 'Philip Garcia', 'Luz Torres']),
+      members: getIds(['james.reyes@volunteer.com', 'mark.cruz@volunteer.com', 'ramon.mendoza@volunteer.com', 'albert.santos@volunteer.com', 'philip.garcia@volunteer.com', 'luz.torres@volunteer.com']),
       specialties: ['First Aid', 'Fire Fighting', 'Hazmat'],
       schedule: ['Tue', 'Wed', 'Thu', 'Fri', 'Sat']
     },
     {
       name: 'Team Charlie',
       role: 'Mountain Rescue',
-      teamLeader: volunteerMap['Albert Santos']?._id || null,
+      teamLeader: volunteerMap['albert.santos@volunteer.com']?._id || null,
       volunteerId: 'RES-003',
-      members: getIds(['Albert Santos', 'Jose Rizal', 'Manuel Dela Cruz', 'Ramon Cruz', 'Elena Gomez', 'Carlos Mendoza']),
+      members: getIds(['albert.santos@volunteer.com', 'jose.rizal@volunteer.com', 'manuel.delacruz@volunteer.com', 'ramon.mendoza@volunteer.com', 'elena.gomez@volunteer.com', 'carlos.mendoza@volunteer.com']),
       specialties: ['First Aid', 'Mountain Rescue', 'USAR LVL 2'],
       schedule: ['Mon', 'Tue', 'Thu', 'Fri', 'Sun']
     },
     {
       name: 'Team Delta',
       role: 'K9 & Emergency',
-      teamLeader: volunteerMap['Ramon Cruz']?._id || null,
+      teamLeader: volunteerMap['ramon.santos@volunteer.com']?._id || null,
       volunteerId: 'RES-004',
-      members: getIds(['Ramon Cruz', 'Maria Santos', 'Juan Dela Cruz', 'Ana Reyes', 'Pedro Lopez', 'Luz Gomez']),
+      members: getIds(['ramon.santos@volunteer.com', 'maria.santos@volunteer.com', 'juan.delacruz@volunteer.com', 'ana.reyes@volunteer.com', 'pedro.lopez@volunteer.com', 'luz.gomez@volunteer.com']),
       specialties: ['BLS/CPR', 'K9 Rescue', 'Emergency Driving'],
       schedule: ['Wed', 'Thu', 'Fri', 'Sat', 'Sun']
     }
@@ -354,17 +365,16 @@ const getTeamDefinitions = (volunteers) => {
 
 async function seedDatabase() {
   try {
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/rescue_db');
+    // ✅ Use your exact MongoDB URI from .env
+    await mongoose.connect(process.env.MONGODB_URI);
     console.log('✅ Connected to MongoDB');
 
     // Clear existing data
     await User.deleteMany({});
-    console.log('🗑️ Cleared existing users');
-
     await Team.deleteMany({});
-    console.log('🗑️ Cleared existing teams');
+    console.log('🗑️ Cleared users and teams');
 
-    // Hash passwords and create users
+    // Create Users
     const createdUsers = [];
     for (const userData of users) {
       const salt = await bcrypt.genSalt(12);
@@ -374,7 +384,7 @@ async function seedDatabase() {
       console.log(`✅ Created user: ${userData.email} (${userData.role})`);
     }
 
-    // Create teams
+    // Create Teams with REAL ObjectIds
     const teamDefinitions = getTeamDefinitions(createdUsers);
     for (const teamData of teamDefinitions) {
       if (teamData.members.length === 0) {

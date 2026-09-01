@@ -37,13 +37,13 @@ const volunteerRoutes = require('./src/routes/volunteer.routes');
 
 app.use('/api/volunteers', volunteerRoutes);
 
-app.set('trust proxy', true);
+app.set('trust proxy', 1);
 
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 1000,
+  max: 300,
   message: 'Too many requests, please try again later.',
-  validate: { trustProxy: false }
+  validate: { trustProxy: true }
 }));
 
 const server = http.createServer(app);
@@ -186,6 +186,20 @@ mongoose.connect(MONGODB_URI)
 
 const User = require('./src/models/User.model');
 const authRoutes = require('./src/routes/auth.routes');
+
+// ✅ DEFINE THE TEAM MODEL HERE
+const teamSchema = new mongoose.Schema({
+  name: { type: String, required: true, unique: true },
+  role: { type: String, required: true },
+  teamLeader: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  volunteerId: { type: String, required: true, unique: true },
+  members: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  specialties: [{ type: String }],
+  schedule: [{ type: String }]
+}, { timestamps: true });
+
+const Team = mongoose.model('Team', teamSchema);
+
 
 async function createNotification(recipientId, type, title, message, data = {}) {
   try {
@@ -742,8 +756,12 @@ app.post('/api/incidents', incidentUpload.single('photo'), async (req, res) => {
   }
 });
 
+
+
 app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
   try {
+    const nodemailer = require('nodemailer'); // ✅ FIXED: Defined at the top!
+
     const { volunteerIds, dispatchNotes } = req.body;
     const incidentId = req.params.id;
 
@@ -767,7 +785,7 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
 
     if (alreadyAssigned.length > 0) {
       const assignedVolunteers = await User.find({ _id: { $in: alreadyAssigned } }).select('firstName lastName');
-      const names = assignedVolunteers.map(v => `${v.firstName} ${v.lastName}`).join(', ');
+      const names = assignedVolunteers.map(v => `${v?.firstName || 'Mock Team'} ${v?.lastName || ''}`).join(', ');
       return res.status(400).json({ success: false, message: `The following volunteers are already assigned: ${names}`, alreadyAssigned });
     }
 
@@ -781,7 +799,9 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
 
       if (otherIncident) {
         const volunteer = await User.findById(volunteerId);
-        busyVolunteers.push({ id: volunteerId, name: `${volunteer.firstName} ${volunteer.lastName}`, incidentId: otherIncident.incidentId });
+        if (volunteer) {
+          busyVolunteers.push({ id: volunteerId, name: `${volunteer.firstName} ${volunteer.lastName}`, incidentId: otherIncident.incidentId });
+        }
       }
     }
 
@@ -798,12 +818,59 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
 
     const volunteers = await User.find({ _id: { $in: volunteerIds }, role: 'volunteer', isActive: true, isApproved: true });
 
-    const io = req.app.get('io');
+    // ✅ IF DISPATCHING A TEAM (No real volunteers found): ONLY NOTIFY CIVILIAN!
+    if (volunteers.length === 0) {
+      const civilian = await User.findById(incident.reportedBy);
+      if (civilian) {
+        await createNotification(
+          civilian._id,
+          'incident_update',
+          '✅ Dispatch Update',
+          `A rescue team has been dispatched to your "${incident.type}" report at ${incident.location.address}. Check the Track Reports page.`,
+          { incidentId: incident._id, status: 'Dispatched' }
+        );
 
+        // Send Email ONLY to Civilian
+        if (civilian.email) {
+          const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+          });
+          await transporter.sendMail({
+            from: `"Rescue System" <${process.env.EMAIL_USER}>`,
+            to: civilian.email,
+            subject: `✅ Dispatch Update: ${incident.incidentId}`,
+            html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
+                      <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
+                        <h1 style="margin: 0;">✅ Dispatch Update</h1>
+                        <p>A rescue team has been dispatched to your incident.</p>
+                      </div>
+                      <div style="padding: 20px;">
+                        <p>Dear <strong>${civilian.firstName}</strong>,</p>
+                        <p>A rescue team is on the way to your reported incident.</p>
+                        <h3>Incident Details:</h3>
+                        <p><strong>ID:</strong> ${incident.incidentId}</p>
+                        <p><strong>Type:</strong> ${incident.type}</p>
+                        <p><strong>Status:</strong> Dispatched</p>
+                        <p><strong>Location:</strong> ${incident.location.address}</p>
+                      </div>
+                    </div>`
+          });
+        }
+      }
+
+      return res.json({
+        success: true,
+        message: `Incident dispatched to ${volunteerIds.length} Team Member(s)`,
+        data: { incident: await Incident.findById(incidentId).populate('reportedBy', 'firstName lastName email'), volunteersDispatched: volunteerIds.length }
+      });
+    }
+
+    const io = req.app.get('io');
     const { sendEmergencyPush, sendEmailAlert } = require('./src/services/alert.service');
     const PushSubscription = require('./src/models/PushSubscription.model');
-    const nodemailer = require('nodemailer');
 
+    // ✅ FOR ACTUAL INDIVIDUAL VOLUNTEERS ONLY
     for (const volunteer of volunteers) {
       const notification = await Notification.create({
         recipient: volunteer._id,
@@ -841,6 +908,7 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
       }
     }
 
+    // ✅ STILL NOTIFY CIVILIAN
     const civilian = await User.findById(incident.reportedBy);
 
     if (civilian) {
@@ -862,52 +930,17 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
       });
 
       if (civilian.email) {
-        const civilianEmailHtml = `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
-              <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
-                  <h1 style="margin: 0;">✅ Dispatch Update</h1>
-                  <p>Your reported incident has been dispatched to a volunteer.</p>
-              </div>
-              <div style="padding: 20px;">
-                  <p>Dear <strong>${civilian.firstName} ${civilian.lastName}</strong>,</p>
-                  <p>Good news! A volunteer has been assigned to your reported incident.</p>
-                  <h3>Incident Details:</h3>
-                  <p><strong>ID:</strong> ${incident.incidentId}</p>
-                  <p><strong>Type:</strong> ${incident.type}</p>
-                  <p><strong>Status:</strong> Dispatched</p>
-                  <p><strong>Location:</strong> ${incident.location.address}</p>
-                  <div style="text-align: center; margin-top: 20px;">
-                      <a href="${process.env.FRONTEND_URL}/track-reports" style="background-color: #1976d2; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">Track Your Report</a>
-                  </div>
-              </div>
-          </div>
-        `;
-
         const transporter = nodemailer.createTransport({
           service: 'gmail',
-          auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS
-          }
+          auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
         });
-
         await transporter.sendMail({
           from: `"Rescue System" <${process.env.EMAIL_USER}>`,
           to: civilian.email,
           subject: `✅ Dispatch Update: ${incident.incidentId}`,
-          html: civilianEmailHtml
+          html: `<p>Dear ${civilian.firstName}, a volunteer has been dispatched to your incident ${incident.incidentId}.</p>`
         });
       }
-    }
-
-    const rescueTeam = await User.find({ role: { $in: ['admin', 'dispatcher', 'responder'] }, isActive: true });
-    for (const member of rescueTeam) {
-      io.to(`user_${member._id}`).emit('new_notification', {
-        type: 'dispatch_update',
-        title: '📋 Dispatch Update',
-        message: `Incident ${incident.incidentId} has been dispatched to ${volunteers.length} volunteer(s)`,
-        data: { incidentId: incident._id, volunteerCount: volunteers.length }
-      });
     }
 
     const updatedIncident = await Incident.findById(incidentId)
@@ -1915,6 +1948,20 @@ app.put('/api/admin/backup-schedule', protect, async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error saving backup schedule:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ GET ALL TEAMS
+app.get('/api/teams', protect, async (req, res) => {
+  try {
+    const teams = await Team.find({})
+      .populate('members', 'firstName lastName phoneNumber profileImage email')
+      .populate('teamLeader', 'firstName lastName phoneNumber');
+
+    res.json({ success: true, data: teams });
+  } catch (error) {
+    console.error('Error fetching teams:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });

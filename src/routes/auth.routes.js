@@ -8,6 +8,21 @@ const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User.model');
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+const rateLimit = require('express-rate-limit');
+
+// ✅ STRICT RATE LIMIT FOR LOGIN & GOOGLE (Stops Brute Force)
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 10, // Limit each IP to 10 login requests per 15 mins
+    message: {
+        success: false,
+        message: 'Too many login attempts. Please try again after 15 minutes.'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 const {
     register,
     login,
@@ -61,10 +76,12 @@ router.post('/reset-password/:token', resetPassword);
 // ============ PUBLIC ROUTES ============
 // ✅ Register - uses multer to parse FormData
 router.post('/register', registrationUpload.any(), register);
-router.post('/login', validateLogin, login);
 
-// ✅ GOOGLE SIGN-IN / SIGN-UP ROUTE (ONLY ONE ROUTE HERE!)
-router.post('/google', async (req, res) => {
+// ✅ ✅ ✅ ATTACH THE RATE LIMITER TO LOGIN & GOOGLE
+router.post('/login', authLimiter, validateLogin, login);
+
+// ✅ ✅ ✅ ATTACH THE RATE LIMITER TO GOOGLE
+router.post('/google', authLimiter, async (req, res) => {
     const { token } = req.body;
     try {
         const ticket = await client.verifyIdToken({
