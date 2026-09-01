@@ -137,8 +137,37 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   crossOriginOpenerPolicy: false,
   crossOriginEmbedderPolicy: false,
-  contentSecurityPolicy: false
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://www.google.com", "https://www.gstatic.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdnjs.cloudflare.com"],
+      imgSrc: ["'self'", "data:", "https://res.cloudinary.com", "https://*.tile.openstreetmap.org", "https://*.basemaps.cartocdn.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+      connectSrc: ["'self'", "https://*.tile.openstreetmap.org", "https://sta-rosa-rescue-system-backend.onrender.com", "https://www.google.com", "https://accounts.google.com", "ws://localhost:5000", "wss://sta-rosa-rescue-system-backend.onrender.com"],
+      frameSrc: ["'self'", "https://accounts.google.com", "https://www.google.com"],
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: null
+    }
+  }
 }));
+
+// ✅ ADD THIS: Additional security headers
+app.use((req, res, next) => {
+  // X-Content-Type-Options: Prevent MIME sniffing (FIXES PENETEST TOOL FINDING)
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  // Referrer-Policy: Prevent leaking full URL (FIXES PENETEST TOOL FINDING)
+  res.setHeader('Referrer-Policy', 'no-referrer');
+
+  // Strict-Transport-Security: Force HTTPS (FIXES HTTP -> HTTPS issues)
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+
+  // Permissions-Policy: Restrict browser features
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+
+  next();
+});
 
 const allowedOrigins = [
   'http://localhost:5173',
