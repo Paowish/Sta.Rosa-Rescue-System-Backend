@@ -760,10 +760,20 @@ app.post('/api/incidents', incidentUpload.single('photo'), async (req, res) => {
 
 app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
   try {
-    const nodemailer = require('nodemailer'); // ✅ FIXED: Defined at the top!
+    const nodemailer = require('nodemailer');
 
-    const { volunteerIds, dispatchNotes } = req.body;
+    const { volunteerIds = [], dispatchNotes = '', teamName = null } = req.body;
     const incidentId = req.params.id;
+
+    // ✅ ADD THIS!
+    console.log('🎯 [SERVER] FULL BODY:', JSON.stringify(req.body));
+    console.log('🎯 [SERVER] teamName:', teamName);
+
+    // ✅ CHECK IF DISPATCHING A TEAM
+    // ✅ ALWAYS treat as team dispatch if there are 6+ volunteerIds (teams have 6 members)
+    const isTeamDispatch = !!teamName || req.body.dispatchType === 'team' || volunteerIds.length >= 6;
+    console.log('🎯 [SERVER] isTeamDispatch:', isTeamDispatch);
+
 
     const incident = await Incident.findById(incidentId);
     if (!incident) {
@@ -778,48 +788,61 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
       return res.status(400).json({ success: false, message: 'This incident has already been accepted by a volunteer' });
     }
 
-    const existingAssigned = incident.assignedTo || [];
-    const existingVolunteerIds = existingAssigned.map(a => a.responder.toString());
+    // ✅ SKIP ALL BUSY CHECKS IF DISPATCHING A TEAM
+    if (!isTeamDispatch) {
+      const existingAssigned = incident.assignedTo || [];
+      const existingVolunteerIds = existingAssigned.map(a => a.responder.toString());
 
-    const alreadyAssigned = volunteerIds.filter(id => existingVolunteerIds.includes(id.toString()));
+      const alreadyAssigned = volunteerIds.filter(id => existingVolunteerIds.includes(id.toString()));
 
-    if (alreadyAssigned.length > 0) {
-      const assignedVolunteers = await User.find({ _id: { $in: alreadyAssigned } }).select('firstName lastName');
-      const names = assignedVolunteers.map(v => `${v?.firstName || 'Mock Team'} ${v?.lastName || ''}`).join(', ');
-      return res.status(400).json({ success: false, message: `The following volunteers are already assigned: ${names}`, alreadyAssigned });
-    }
+      if (alreadyAssigned.length > 0) {
+        const assignedVolunteers = await User.find({ _id: { $in: alreadyAssigned } }).select('firstName lastName');
+        const names = assignedVolunteers.map(v => `${v?.firstName || 'Mock Team'} ${v?.lastName || ''}`).join(', ');
+        return res.status(400).json({ success: false, message: `The following volunteers are already assigned: ${names}`, alreadyAssigned });
+      }
 
-    const busyVolunteers = [];
-    for (const volunteerId of volunteerIds) {
-      const otherIncident = await Incident.findOne({
-        _id: { $ne: incidentId },
-        'assignedTo.responder': volunteerId,
-        status: { $in: ['Pending', 'Acknowledged', 'Active', 'En Route', 'On Scene'] }
-      });
+      const busyVolunteers = [];
+      for (const volunteerId of volunteerIds) {
+        const otherIncident = await Incident.findOne({
+          _id: { $ne: incidentId },
+          'assignedTo.responder': volunteerId,
+          status: { $in: ['Pending', 'Acknowledged', 'Active', 'En Route', 'On Scene'] }
+        });
 
-      if (otherIncident) {
-        const volunteer = await User.findById(volunteerId);
-        if (volunteer) {
-          busyVolunteers.push({ id: volunteerId, name: `${volunteer.firstName} ${volunteer.lastName}`, incidentId: otherIncident.incidentId });
+        if (otherIncident) {
+          const volunteer = await User.findById(volunteerId);
+          if (volunteer) {
+            busyVolunteers.push({ id: volunteerId, name: `${volunteer.firstName} ${volunteer.lastName}`, incidentId: otherIncident.incidentId });
+          }
         }
+      }
+
+      if (busyVolunteers.length > 0) {
+        const names = busyVolunteers.map(v => `${v.name} (Incident ${v.incidentId})`).join(', ');
+        return res.status(400).json({ success: false, message: `The following volunteers are already assigned to other active incidents: ${names}`, busyVolunteers });
       }
     }
 
-    if (busyVolunteers.length > 0) {
-      const names = busyVolunteers.map(v => `${v.name} (Incident ${v.incidentId})`).join(', ');
-      return res.status(400).json({ success: false, message: `The following volunteers are already assigned to other active incidents: ${names}`, busyVolunteers });
+    // ✅ ONLY ADD ASSIGNMENTS IF NOT A TEAM DISPATCH
+    if (!isTeamDispatch) {
+      const newAssignments = volunteerIds.map(id => ({ responder: id, assignedAt: new Date(), status: 'Pending' }));
+      incident.assignedTo = [...incident.assignedTo, ...newAssignments];
     }
 
-    const newAssignments = volunteerIds.map(id => ({ responder: id, assignedAt: new Date(), status: 'Pending' }));
-    incident.assignedTo = [...incident.assignedTo, ...newAssignments];
     incident.status = 'Pending';
     incident.dispatchNotes = dispatchNotes || 'Dispatched to volunteers';
+
+    // ✅ SAVE TEAM INFO IF TEAM
+    if (teamName) {
+      incident.teamName = teamName;
+      incident.dispatchType = 'team';
+      incident.status = 'Dispatched';
+    }
+
     await incident.save();
 
-    const volunteers = await User.find({ _id: { $in: volunteerIds }, role: 'volunteer', isActive: true, isApproved: true });
-
-    // ✅ IF DISPATCHING A TEAM (No real volunteers found): ONLY NOTIFY CIVILIAN!
-    if (volunteers.length === 0) {
+    // ✅ IF DISPATCHING A TEAM - ONLY NOTIFY CIVILIAN (NO EMAILS TO TEAM MEMBERS!)
+    if (isTeamDispatch) {
       const civilian = await User.findById(incident.reportedBy);
       if (civilian) {
         await createNotification(
@@ -830,7 +853,6 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
           { incidentId: incident._id, status: 'Dispatched' }
         );
 
-        // Send Email ONLY to Civilian
         if (civilian.email) {
           const transporter = nodemailer.createTransport({
             service: 'gmail',
@@ -843,11 +865,11 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
             html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
                       <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
                         <h1 style="margin: 0;">✅ Dispatch Update</h1>
-                        <p>A rescue team has been dispatched to your incident.</p>
+                        <p>${isTeamDispatch ? 'A rescue team has been dispatched to your incident.' : 'A volunteer has been dispatched to your incident.'}</p>
                       </div>
                       <div style="padding: 20px;">
                         <p>Dear <strong>${civilian.firstName}</strong>,</p>
-                        <p>A rescue team is on the way to your reported incident.</p>
+                        <p>${isTeamDispatch ? 'A rescue team is on the way to your reported incident.' : 'A volunteer is on the way to your reported incident.'}</p>
                         <h3>Incident Details:</h3>
                         <p><strong>ID:</strong> ${incident.incidentId}</p>
                         <p><strong>Type:</strong> ${incident.type}</p>
@@ -857,20 +879,33 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
                     </div>`
           });
         }
+        console.log(`📧 Email sent to civilian: ${civilian.email}`);
       }
+    }
 
+    // ✅ ADD THIS RETURN!
+    if (isTeamDispatch) {
       return res.json({
         success: true,
-        message: `Incident dispatched to ${volunteerIds.length} Team Member(s)`,
-        data: { incident: await Incident.findById(incidentId).populate('reportedBy', 'firstName lastName email'), volunteersDispatched: volunteerIds.length }
+        message: `Incident dispatched to ${teamName || 'Rescue Team'}`,
+        data: {
+          incident: await Incident.findById(incidentId).populate('reportedBy', 'firstName lastName email'),
+          volunteersDispatched: 0,
+          teamName: teamName || 'Rescue Team',
+          dispatchType: 'team'
+        }
       });
     }
 
+    // ✅ CONTINUE TO INDIVIDUAL VOLUNTEER PATH
+
+    // ✅ CONTINUE TO INDIVIDUAL VOLUNTEER PATH
     const io = req.app.get('io');
     const { sendEmergencyPush, sendEmailAlert } = require('./src/services/alert.service');
     const PushSubscription = require('./src/models/PushSubscription.model');
 
-    // ✅ FOR ACTUAL INDIVIDUAL VOLUNTEERS ONLY
+    const volunteers = await User.find({ _id: { $in: volunteerIds }, role: 'volunteer', isActive: true, isApproved: true });
+
     for (const volunteer of volunteers) {
       const notification = await Notification.create({
         recipient: volunteer._id,
@@ -938,7 +973,21 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
           from: `"Rescue System" <${process.env.EMAIL_USER}>`,
           to: civilian.email,
           subject: `✅ Dispatch Update: ${incident.incidentId}`,
-          html: `<p>Dear ${civilian.firstName}, a volunteer has been dispatched to your incident ${incident.incidentId}.</p>`
+          html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
+                      <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
+                        <h1 style="margin: 0;">✅ Dispatch Update</h1>
+                        <p>A volunteer has been dispatched to your incident.</p>
+                      </div>
+                      <div style="padding: 20px;">
+                        <p>Dear <strong>${civilian.firstName}</strong>,</p>
+                        <p>A volunteer is on the way to your reported incident.</p>
+                        <h3>Incident Details:</h3>
+                        <p><strong>ID:</strong> ${incident.incidentId}</p>
+                        <p><strong>Type:</strong> ${incident.type}</p>
+                        <p><strong>Status:</strong> Dispatched</p>
+                        <p><strong>Location:</strong> ${incident.location.address}</p>
+                      </div>
+                    </div>`
         });
       }
     }
@@ -1009,11 +1058,19 @@ app.delete('/api/incidents/:id/volunteer/:volunteerId', protect, async (req, res
 
 app.get('/api/volunteers/available', protect, async (req, res) => {
   try {
+    // ✅ Get all team member IDs so we can EXCLUDE them
+    const allTeams = await Team.find({}).select('members');
+    const teamMemberIds = allTeams.flatMap(team => team.members.map(member => member.toString()));
+
+    // ✅ ONLY get volunteers who are NOT in any team
     const volunteers = await User.find({
       role: 'volunteer',
       isActive: true,
-      isApproved: true
+      isApproved: true,
+      _id: { $nin: teamMemberIds }  // ✅ EXCLUDE team members!
     }).select('firstName lastName email phoneNumber profileImage');
+
+    console.log('🎯 Available volunteers (non-team members):', volunteers.length);
 
     res.json({
       success: true,
