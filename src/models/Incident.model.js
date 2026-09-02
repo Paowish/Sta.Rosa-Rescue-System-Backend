@@ -42,7 +42,9 @@ const incidentSchema = new mongoose.Schema({
     assignedAt: Date,
     status: String
   }],
-  assignedTeam: String,
+  assignedTeam: { type: String, default: null },      // ✅ THIS EXISTS
+  teamName: { type: String, default: null },          // ✅ ADD THIS!
+  dispatchType: { type: String, default: 'volunteer' }, // ✅ ADD THIS!
   dispatchNotes: String,
   resolvedAt: Date,
   resolutionNotes: String,
@@ -77,7 +79,6 @@ const incidentSchema = new mongoose.Schema({
     }],
     lastUpdated: { type: Date, default: Date.now }
   }
-
 
 }, { timestamps: true });
 

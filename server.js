@@ -833,8 +833,8 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
     incident.dispatchNotes = dispatchNotes || 'Dispatched to volunteers';
 
     // ✅ SAVE TEAM INFO IF TEAM
-    if (teamName) {
-      incident.teamName = teamName;
+    if (teamName || volunteerIds.length >= 6) {
+      incident.teamName = teamName || 'Rescue Team';
       incident.dispatchType = 'team';
       incident.status = 'Dispatched';
     }
