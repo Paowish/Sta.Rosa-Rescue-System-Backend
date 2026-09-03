@@ -418,33 +418,90 @@ exports.register = async (req, res) => {
     }
 };
 
-// ============================================
-// LOGIN - With Volunteer Approval Check
-// ============================================
 exports.login = async (req, res) => {
     try {
         const { email, password } = req.body;
 
-        // Validate input
-        if (!email || !password) {
-            return res.status(400).json({
-                success: false,
-                message: 'Please provide email and password'
+        // ✅ NORMALIZE EMAIL
+        const normalizedEmail = email.trim().toLowerCase();
+
+        console.log('🔍 LOGIN ATTEMPT:');
+        console.log(`   Email received: "${email}"`);
+        console.log(`   Normalized email: "${normalizedEmail}"`);
+        console.log(`   Password received: "${password}"`);
+
+        // ✅ FIND USER WITH NORMALIZED EMAIL FIRST
+        let user = await User.findOne({ email: normalizedEmail });
+
+        // ✅ IF NOT FOUND, TRY WITH DOTS (Gmail treats dots as optional)
+        if (!user && normalizedEmail.includes('@gmail.com')) {
+            // Try with dots in local part
+            const localPart = normalizedEmail.split('@')[0];
+            const domain = normalizedEmail.split('@')[1];
+
+            // Try adding dots back
+            const possibleEmails = [
+                normalizedEmail, // Already tried
+                `${localPart}@${domain}`, // Same as normalized
+            ];
+
+            // Try regex to find user with dots
+            user = await User.findOne({
+                email: { $regex: `^${localPart.replace(/\./g, '\\.')}@${domain}$`, $options: 'i' }
             });
+
+            if (user) {
+                console.log(`✅ User found with dots: ${user.email}`);
+            }
         }
 
-        // Find user
-        const user = await User.findOne({ email });
+        // ✅ IF STILL NOT FOUND, SEARCH MORE BROADLY
         if (!user) {
+            // Try to find user by removing dots from email pattern
+            const userWithoutDots = await User.findOne({
+                email: { $regex: `^${normalizedEmail.replace(/\./g, '\\.')}$`, $options: 'i' }
+            });
+
+            if (userWithoutDots) {
+                user = userWithoutDots;
+                console.log(`✅ User found via regex: ${user.email}`);
+            }
+        }
+
+        // ✅ FINAL FALLBACK: Search all Gmail users
+        if (!user && normalizedEmail.endsWith('@gmail.com')) {
+            const localPart = normalizedEmail.split('@')[0].replace(/\./g, '');
+            const allGmailUsers = await User.find({
+                email: { $regex: '@gmail\\.com$', $options: 'i' }
+            });
+
+            // Try to find matching user
+            for (const u of allGmailUsers) {
+                const uLocalPart = u.email.split('@')[0].replace(/\./g, '');
+                if (uLocalPart === localPart) {
+                    user = u;
+                    console.log(`✅ User found via fallback: ${user.email}`);
+                    break;
+                }
+            }
+        }
+
+        if (!user) {
+            console.log(`❌ USER NOT FOUND: "${normalizedEmail}"`);
             return res.status(401).json({
                 success: false,
                 message: 'Invalid credentials'
             });
         }
 
-        // Check password
+        console.log(`✅ User found: ${user.email}`);
+
+        // ✅ CHECK PASSWORD
         const isMatch = await bcrypt.compare(password, user.password);
+        console.log(`   Password match: ${isMatch ? '✅ YES' : '❌ NO'}`);
+
         if (!isMatch) {
+            console.log(`❌ PASSWORD MISMATCH for: ${user.email}`);
             return res.status(401).json({
                 success: false,
                 message: 'Invalid credentials'
@@ -492,7 +549,7 @@ exports.login = async (req, res) => {
             });
         }
 
-        // Generate token
+        // ✅ Generate token
         const token = jwt.sign(
             { id: user._id },
             process.env.JWT_SECRET || 'mysecretkey',
@@ -503,15 +560,7 @@ exports.login = async (req, res) => {
         user.lastLogin = new Date();
         await user.save();
 
-        // ✅ Log to check if profileImage exists
-        console.log('📸 User from database:', {
-            email: user.email,
-            profileImage: user.profileImage,
-            applicationStatus: user.applicationStatus,
-            isApproved: user.isApproved
-        });
-
-        // ✅ Return user data with profileImage from MongoDB
+        // ✅ Return user data
         res.json({
             success: true,
             token: token,
@@ -528,6 +577,7 @@ exports.login = async (req, res) => {
                 isActive: user.isActive
             }
         });
+
     } catch (error) {
         console.error('❌ Login error:', error);
         res.status(500).json({

@@ -23,6 +23,18 @@ const transporter = nodemailer.createTransport({
     }
 });
 
+// ✅ VALIDATE EMAIL ADDRESS (Prevents sending to fake/bounce emails)
+const isValidEmail = (email) => {
+    if (!email || typeof email !== 'string') return false;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) return false;
+    // Block common fake domains
+    const fakeDomains = ['volunteer.com', 'example.com', 'test.com', 'fake.com', 'mock.com', 'sample.com', 'demo.com', 'test.com', 'none.com'];
+    const domain = email.split('@')[1].toLowerCase();
+    if (fakeDomains.includes(domain)) return false;
+    return true;
+};
+
 // ==========================================================
 // 🚨 LAYER 1: WEB PUSH (Siren + Vibration)
 // ==========================================================
@@ -54,10 +66,14 @@ exports.sendEmergencyPush = async (subscription, volunteerName, incidentData) =>
 };
 
 // ==========================================================
-// 📧 LAYER 2: EMAIL BACKUP (Gmail)
+// 📧 LAYER 2: EMAIL BACKUP (Gmail) - WITH VALIDATION
 // ==========================================================
 exports.sendEmailAlert = async (toEmail, volunteerName, incidentData) => {
-    if (!toEmail) return false;
+    // ✅ BLOCK FAKE EMAILS
+    if (!isValidEmail(toEmail)) {
+        console.log(`⚠️ Skipping email - invalid address: ${toEmail}`);
+        return false;
+    }
 
     try {
         const mailOptions = {
