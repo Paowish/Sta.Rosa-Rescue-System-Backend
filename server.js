@@ -46,6 +46,22 @@ app.use(rateLimit({
   validate: { trustProxy: true }
 }));
 
+// ✅ VALIDATE EMAIL ADDRESS (Prevents spam/bounce emails)
+const isValidEmail = (email) => {
+  if (!email || typeof email !== 'string') return false;
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) return false;
+  const fakeDomains = ['volunteer.com', 'example.com', 'test.com', 'fake.com', 'mock.com', 'sample.com', 'demo.com'];
+  const domain = email.split('@')[1].toLowerCase();
+  if (fakeDomains.includes(domain)) return false;
+  return true;
+};
+
+// ✅ LOG EMAIL (For debugging)
+const logEmail = (type, email, success = true) => {
+  console.log(`📧 [${type}] ${success ? '✅' : '❌'} ${email}`);
+};
+
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
@@ -853,33 +869,40 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
           { incidentId: incident._id, status: 'Dispatched' }
         );
 
-        if (civilian.email) {
-          const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
-          });
-          await transporter.sendMail({
-            from: `"Rescue System" <${process.env.EMAIL_USER}>`,
-            to: civilian.email,
-            subject: `✅ Dispatch Update: ${incident.incidentId}`,
-            html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
-                      <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
-                        <h1 style="margin: 0;">✅ Dispatch Update</h1>
-                        <p>${isTeamDispatch ? 'A rescue team has been dispatched to your incident.' : 'A volunteer has been dispatched to your incident.'}</p>
-                      </div>
-                      <div style="padding: 20px;">
-                        <p>Dear <strong>${civilian.firstName}</strong>,</p>
-                        <p>${isTeamDispatch ? 'A rescue team is on the way to your reported incident.' : 'A volunteer is on the way to your reported incident.'}</p>
-                        <h3>Incident Details:</h3>
-                        <p><strong>ID:</strong> ${incident.incidentId}</p>
-                        <p><strong>Type:</strong> ${incident.type}</p>
-                        <p><strong>Status:</strong> Dispatched</p>
-                        <p><strong>Location:</strong> ${incident.location.address}</p>
-                      </div>
-                    </div>`
-          });
+        // ✅ ONLY SEND EMAIL IF CIVILIAN EMAIL IS VALID
+        if (civilian.email && isValidEmail(civilian.email)) {
+          try {
+            const transporter = nodemailer.createTransport({
+              service: 'gmail',
+              auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+            });
+            await transporter.sendMail({
+              from: `"Rescue System" <${process.env.EMAIL_USER}>`,
+              to: civilian.email,
+              subject: `✅ Dispatch Update: ${incident.incidentId}`,
+              html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
+                        <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
+                          <h1 style="margin: 0;">✅ Dispatch Update</h1>
+                          <p>${isTeamDispatch ? 'A rescue team has been dispatched to your incident.' : 'A volunteer has been dispatched to your incident.'}</p>
+                        </div>
+                        <div style="padding: 20px;">
+                          <p>Dear <strong>${civilian.firstName}</strong>,</p>
+                          <p>${isTeamDispatch ? 'A rescue team is on the way to your reported incident.' : 'A volunteer is on the way to your reported incident.'}</p>
+                          <h3>Incident Details:</h3>
+                          <p><strong>ID:</strong> ${incident.incidentId}</p>
+                          <p><strong>Type:</strong> ${incident.type}</p>
+                          <p><strong>Status:</strong> Dispatched</p>
+                          <p><strong>Location:</strong> ${incident.location.address}</p>
+                        </div>
+                      </div>`
+            });
+            logEmail('CIVILIAN', civilian.email);
+          } catch (emailError) {
+            console.error(`❌ Failed to send email to ${civilian.email}:`, emailError.message);
+          }
+        } else {
+          logEmail('CIVILIAN', civilian.email, false);
         }
-        console.log(`📧 Email sent to civilian: ${civilian.email}`);
       }
     }
 
@@ -933,13 +956,21 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
         });
       }
 
-      if (volunteer.email) {
-        await sendEmailAlert(volunteer.email, `${volunteer.firstName} ${volunteer.lastName}`, {
-          incidentId: incident.incidentId,
-          type: incident.type,
-          severity: incident.severity,
-          address: incident.location.address
-        });
+      // ✅ ONLY SEND EMAIL IF VOLUNTEER EMAIL IS VALID
+      if (volunteer.email && isValidEmail(volunteer.email)) {
+        try {
+          await sendEmailAlert(volunteer.email, `${volunteer.firstName} ${volunteer.lastName}`, {
+            incidentId: incident.incidentId,
+            type: incident.type,
+            severity: incident.severity,
+            address: incident.location.address
+          });
+          logEmail('VOLUNTEER', volunteer.email);
+        } catch (emailError) {
+          console.error(`❌ Failed to send email to ${volunteer.email}:`, emailError.message);
+        }
+      } else {
+        logEmail('VOLUNTEER', volunteer.email, false);
       }
     }
 
@@ -964,31 +995,39 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
         createdAt: civilianNotif.createdAt
       });
 
-      if (civilian.email) {
-        const transporter = nodemailer.createTransport({
-          service: 'gmail',
-          auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
-        });
-        await transporter.sendMail({
-          from: `"Rescue System" <${process.env.EMAIL_USER}>`,
-          to: civilian.email,
-          subject: `✅ Dispatch Update: ${incident.incidentId}`,
-          html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
-                      <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
-                        <h1 style="margin: 0;">✅ Dispatch Update</h1>
-                        <p>A volunteer has been dispatched to your incident.</p>
-                      </div>
-                      <div style="padding: 20px;">
-                        <p>Dear <strong>${civilian.firstName}</strong>,</p>
-                        <p>A volunteer is on the way to your reported incident.</p>
-                        <h3>Incident Details:</h3>
-                        <p><strong>ID:</strong> ${incident.incidentId}</p>
-                        <p><strong>Type:</strong> ${incident.type}</p>
-                        <p><strong>Status:</strong> Dispatched</p>
-                        <p><strong>Location:</strong> ${incident.location.address}</p>
-                      </div>
-                    </div>`
-        });
+      // ✅ ONLY SEND EMAIL IF CIVILIAN EMAIL IS VALID
+      if (civilian.email && isValidEmail(civilian.email)) {
+        try {
+          const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+          });
+          await transporter.sendMail({
+            from: `"Rescue System" <${process.env.EMAIL_USER}>`,
+            to: civilian.email,
+            subject: `✅ Dispatch Update: ${incident.incidentId}`,
+            html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
+                        <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
+                          <h1 style="margin: 0;">✅ Dispatch Update</h1>
+                          <p>A volunteer has been dispatched to your incident.</p>
+                        </div>
+                        <div style="padding: 20px;">
+                          <p>Dear <strong>${civilian.firstName}</strong>,</p>
+                          <p>A volunteer is on the way to your reported incident.</p>
+                          <h3>Incident Details:</h3>
+                          <p><strong>ID:</strong> ${incident.incidentId}</p>
+                          <p><strong>Type:</strong> ${incident.type}</p>
+                          <p><strong>Status:</strong> Dispatched</p>
+                          <p><strong>Location:</strong> ${incident.location.address}</p>
+                        </div>
+                      </div>`
+          });
+          logEmail('CIVILIAN', civilian.email);
+        } catch (emailError) {
+          console.error(`❌ Failed to send email to ${civilian.email}:`, emailError.message);
+        }
+      } else {
+        logEmail('CIVILIAN', civilian.email, false);
       }
     }
 
@@ -1479,11 +1518,17 @@ app.put('/api/admin/approve-volunteer/:userId', protect, async (req, res) => {
       { userId: user._id, status: 'approved', approvedBy: req.user._id }
     );
 
-    try {
-      const { sendVolunteerAccepted } = require('./src/services/email.service');
-      await sendVolunteerAccepted(user.email, user.firstName, user.lastName);
-    } catch (emailError) {
-      console.error('❌ Email error:', emailError);
+    // ✅ ONLY SEND EMAIL IF USER EMAIL IS VALID
+    if (user.email && isValidEmail(user.email)) {
+      try {
+        const { sendVolunteerAccepted } = require('./src/services/email.service');
+        await sendVolunteerAccepted(user.email, user.firstName, user.lastName);
+        logEmail('APPROVE', user.email);
+      } catch (emailError) {
+        console.error('❌ Email error:', emailError);
+      }
+    } else {
+      logEmail('APPROVE', user.email, false);
     }
 
     res.json({
@@ -1589,11 +1634,17 @@ app.put('/api/admin/reject-volunteer/:userId', protect, async (req, res) => {
       { userId: user._id, status: 'rejected', rejectedBy: req.user._id }
     );
 
-    try {
-      const result = await sendVolunteerRejected(user.email, user.firstName, user.lastName, reason);
-      console.log('📧 Email send result:', result);
-    } catch (emailError) {
-      console.error('❌ Email error:', emailError);
+    // ✅ ONLY SEND EMAIL IF USER EMAIL IS VALID
+    if (user.email && isValidEmail(user.email)) {
+      try {
+        const result = await sendVolunteerRejected(user.email, user.firstName, user.lastName, reason);
+        console.log('📧 Email send result:', result);
+        logEmail('REJECT', user.email);
+      } catch (emailError) {
+        console.error('❌ Email error:', emailError);
+      }
+    } else {
+      logEmail('REJECT', user.email, false);
     }
 
     res.json({
