@@ -13,11 +13,11 @@ const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const rateLimit = require('express-rate-limit');
 
 const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
+    windowMs: 3 * 60 * 1000, // 3 minutes
     max: 10,
     message: {
         success: false,
-        message: 'Too many login attempts. Please try again after 15 minutes.'
+        message: 'Too many login attempts. Please try again after 3 minutes.'
     },
     standardHeaders: true,
     legacyHeaders: false,
@@ -291,6 +291,24 @@ router.post('/google', authLimiter, async (req, res) => {
             });
             await user.save();
         } else {
+            // ✅ CHECK IF VOLUNTEER AND PENDING APPROVAL
+            if (user.role === 'volunteer') {
+                if (user.applicationStatus === 'pending' || !user.isApproved) {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Your volunteer application is pending approval. Please wait for the rescue team to review your application.',
+                        code: 'PENDING_APPROVAL'
+                    });
+                }
+                if (user.applicationStatus === 'rejected') {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Your volunteer application has been rejected. Please contact support for more information.',
+                        code: 'REJECTED'
+                    });
+                }
+            }
+
             user.googleId = sub;
             user.firstName = given_name;
             user.lastName = family_name;

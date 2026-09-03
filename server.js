@@ -1085,6 +1085,39 @@ app.get('/api/volunteers/available', protect, async (req, res) => {
   }
 });
 
+// ✅ PUBLIC STATS ENDPOINT (No auth required)
+app.get('/api/public/stats', async (req, res) => {
+  try {
+    const incidents = await Incident.find({});
+    const teams = await Team.find({});
+    const volunteers = await User.find({ role: 'volunteer', isApproved: true, isActive: true });
+
+    const resolvedCount = incidents.filter(i => ['Resolved', 'Solved', 'Closed'].includes(i.status)).length;
+    const activeIncidents = incidents.filter(i => ['Pending', 'Dispatched', 'En Route', 'On Scene'].includes(i.status)).length;
+
+    res.json({
+      success: true,
+      data: {
+        incidentsResolved: resolvedCount,
+        activeVolunteers: volunteers.length,
+        activeUnits: teams.length,
+        totalIncidents: incidents.length,
+        activeIncidents: activeIncidents,
+        recentIncidents: incidents.slice(0, 4).map(incident => ({
+          id: incident.incidentId || `INC-${incident._id.toString().slice(-6)}`,
+          type: incident.type || 'Unknown',
+          loc: incident.location?.address?.split(',')[0] || 'Unknown Location',
+          time: incident.reportedAt ? new Date(incident.reportedAt).toISOString() : new Date().toISOString(),
+          status: incident.status || 'PENDING',
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('❌ Public stats error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 app.get('/api/incidents', async (req, res) => {
   try {
     let incidents;
