@@ -7,14 +7,14 @@ const { validateLogin } = require('../middleware/validation.middleware');
 const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User.model');
+const crypto = require('crypto');
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const rateLimit = require('express-rate-limit');
 
-// ✅ STRICT RATE LIMIT FOR LOGIN & GOOGLE (Stops Brute Force)
 const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 10, // Limit each IP to 10 login requests per 15 mins
+    windowMs: 15 * 60 * 1000,
+    max: 10,
     message: {
         success: false,
         message: 'Too many login attempts. Please try again after 15 minutes.'
@@ -36,7 +36,6 @@ const {
     resetPassword
 } = require('../controllers/auth.controller');
 
-// ✅ Multer for FormData - MUST BE BEFORE THE ROUTE
 const registrationUpload = multer({
     storage: multer.memoryStorage(),
     limits: {
@@ -45,6 +44,192 @@ const registrationUpload = multer({
     }
 });
 
+// ============ PUBLIC ROUTES (NO AUTH REQUIRED) ============
+
+// ✅ VERIFY OTP ENDPOINT (PUBLIC - NO AUTH)
+router.post('/verify-otp', async (req, res) => {
+    try {
+        const { userId, otp } = req.body;
+
+        if (!userId || !otp) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide userId and OTP'
+            });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        if (user.isVerified) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email already verified'
+            });
+        }
+
+        if (!user.otpExpires || user.otpExpires < new Date()) {
+            return res.status(400).json({
+                success: false,
+                message: 'OTP has expired. Please request a new one.'
+            });
+        }
+
+        if (user.otpAttempts >= 5) {
+            return res.status(400).json({
+                success: false,
+                message: 'Too many incorrect attempts. Please request a new OTP.'
+            });
+        }
+
+        if (user.otpCode !== otp) {
+            user.otpAttempts = (user.otpAttempts || 0) + 1;
+            await user.save();
+
+            return res.status(400).json({
+                success: false,
+                message: `Invalid OTP. ${5 - user.otpAttempts} attempts remaining.`
+            });
+        }
+
+        user.isVerified = true;
+        user.otpCode = undefined;
+        user.otpExpires = undefined;
+        user.otpAttempts = 0;
+        await user.save();
+
+        const token = jwt.sign(
+            { id: user._id },
+            process.env.JWT_SECRET || 'mysecretkey',
+            { expiresIn: process.env.JWT_EXPIRE || '7d' }
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: 'Email verified successfully!',
+            token: token,
+            user: {
+                id: user._id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                role: user.role,
+                phoneNumber: user.phoneNumber,
+                profileImage: user.profileImage || '',
+                isApproved: user.isApproved,
+                applicationStatus: user.applicationStatus,
+                isVerified: true
+            }
+        });
+    } catch (error) {
+        console.error('OTP verification error:', error);
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to verify OTP'
+        });
+    }
+});
+
+// ✅ RESEND OTP ENDPOINT (PUBLIC - NO AUTH)
+router.post('/resend-otp', async (req, res) => {
+    try {
+        const { userId } = req.body;
+
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide userId'
+            });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        if (user.isVerified) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email already verified'
+            });
+        }
+
+        // Generate new OTP
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        user.otpCode = otp;
+        user.otpExpires = Date.now() + 3 * 60 * 1000; // 3 minutes
+        user.otpAttempts = 0;
+        await user.save();
+
+        // Send OTP email using Brevo API
+        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+            method: 'POST',
+            headers: {
+                'accept': 'application/json',
+                'api-key': process.env.BREVO_API_KEY,
+                'content-type': 'application/json'
+            },
+            body: JSON.stringify({
+                sender: {
+                    name: "Sta. Rosa Rescue Team",
+                    email: "paolocarunia139@gmail.com"
+                },
+                to: [
+                    {
+                        email: user.email,
+                        name: `${user.firstName} ${user.lastName}`
+                    }
+                ],
+                subject: "🔐 Your OTP Verification Code",
+                htmlContent: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
+                        <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
+                            <h1 style="margin: 0;">OTP Verification</h1>
+                        </div>
+                        <div style="padding: 20px; text-align: center;">
+                            <p>Dear <strong>${user.firstName}</strong>,</p>
+                            <p>Your verification code is:</p>
+                            <div style="font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #1976d2; margin: 20px 0; background-color: #f5f5f5; padding: 15px; border-radius: 8px;">
+                                ${otp}
+                            </div>
+                            <p>This code will expire in <strong>3 minutes</strong>.</p>
+                            <p>If you didn't create an account with us, please ignore this email.</p>
+                        </div>
+                    </div>
+                `
+            })
+        });
+
+        const emailData = await response.json();
+
+        if (!response.ok) {
+            console.error("Brevo API Error (Resend OTP):", emailData);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to send OTP email'
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: 'New OTP sent to your email!'
+        });
+    } catch (error) {
+        console.error('Resend OTP error:', error);
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to resend OTP'
+        });
+    }
+});
 
 router.post('/refresh', async (req, res) => {
     try {
@@ -70,17 +255,15 @@ router.post('/refresh', async (req, res) => {
         res.status(401).json({ success: false, message: 'Invalid token' });
     }
 });
+
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password/:token', resetPassword);
 
-// ============ PUBLIC ROUTES ============
 // ✅ Register - uses multer to parse FormData
 router.post('/register', registrationUpload.any(), register);
 
-// ✅ ✅ ✅ ATTACH THE RATE LIMITER TO LOGIN & GOOGLE
 router.post('/login', authLimiter, validateLogin, login);
 
-// ✅ ✅ ✅ ATTACH THE RATE LIMITER TO GOOGLE
 router.post('/google', authLimiter, async (req, res) => {
     const { token } = req.body;
     try {
@@ -115,7 +298,6 @@ router.post('/google', authLimiter, async (req, res) => {
             await user.save();
         }
 
-        // ✅ RENAMED TO AUTH_TOKEN TO AVOID CONFLICT WITH REQ.BODY TOKEN
         const authToken = jwt.sign(
             { id: user._id },
             process.env.JWT_SECRET || 'mysecretkey',

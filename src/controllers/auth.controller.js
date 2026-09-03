@@ -112,6 +112,9 @@ const calculateAge = (birthdayDate) => {
     return age;
 };
 
+// ============================================
+// REGISTER - With OTP Email Verification
+// ============================================
 exports.register = async (req, res) => {
     try {
         console.log('🔵 Registration request received');
@@ -208,7 +211,6 @@ exports.register = async (req, res) => {
             for (const file of req.files) {
                 const ext = file.originalname.substring(file.originalname.lastIndexOf('.')).toLowerCase();
 
-                // ✅ ALLOW images now - no rejection!
                 if (!allowedMimeTypes.includes(file.mimetype)) {
                     return res.status(400).json({
                         success: false,
@@ -223,7 +225,6 @@ exports.register = async (req, res) => {
                     });
                 }
 
-                // ✅ DIRECT BASE64 SAVE
                 processedFiles.push({
                     name: file.originalname,
                     type: file.mimetype,
@@ -233,7 +234,11 @@ exports.register = async (req, res) => {
             }
         }
 
-        // ✅ CREATE USER WITH REAL BASE64 FILES
+        // ✅ GENERATE OTP (6-digit code)
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+        // ✅ CREATE USER WITH REAL BASE64 FILES + OTP
         const user = await User.create({
             firstName: firstName.trim(),
             lastName: lastName.trim(),
@@ -253,10 +258,67 @@ exports.register = async (req, res) => {
             birthday: birthday || null,
             address1: address1 || '',
             address2: address2 || '',
-            files: processedFiles
+            files: processedFiles,
+            // ✅ OTP VERIFICATION FIELDS
+            isVerified: false,
+            otpCode: otp,
+            otpExpires: otpExpires,
+            otpAttempts: 0
         });
 
         console.log('✅ User created with REAL Base64 files:', user.files.length);
+
+        // ✅ SEND OTP EMAIL
+        try {
+            // Using Brevo API (same as forgotPassword)
+            const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+                method: 'POST',
+                headers: {
+                    'accept': 'application/json',
+                    'api-key': process.env.BREVO_API_KEY,
+                    'content-type': 'application/json'
+                },
+                body: JSON.stringify({
+                    sender: {
+                        name: "Sta. Rosa Rescue Team",
+                        email: "paolocarunia139@gmail.com"
+                    },
+                    to: [
+                        {
+                            email: user.email,
+                            name: `${user.firstName} ${user.lastName}`
+                        }
+                    ],
+                    subject: "🔐 Your OTP Verification Code",
+                    htmlContent: `
+                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
+                            <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
+                                <h1 style="margin: 0;">OTP Verification</h1>
+                            </div>
+                            <div style="padding: 20px; text-align: center;">
+                                <p>Dear <strong>${user.firstName}</strong>,</p>
+                                <p>Thank you for registering with the Sta. Rosa Rescue System. Your verification code is:</p>
+                                <div style="font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #1976d2; margin: 20px 0; background-color: #f5f5f5; padding: 15px; border-radius: 8px;">
+                                    ${otp}
+                                </div>
+                                <p>This code will expire in <strong>3 minutes</strong>.</p>
+                                <p>If you didn't create an account with us, please ignore this email.</p>
+                            </div>
+                        </div>
+                    `
+                })
+            });
+
+            const emailData = await response.json();
+
+            if (!response.ok) {
+                console.error("Brevo API Error (OTP):", emailData);
+            } else {
+                console.log(`📧 OTP email sent to: ${user.email}`);
+            }
+        } catch (emailError) {
+            console.error('❌ Error sending OTP email:', emailError);
+        }
 
         // ✅ Create volunteer application
         if (role === 'volunteer') {
@@ -328,9 +390,10 @@ exports.register = async (req, res) => {
 
         return res.status(201).json({
             success: true,
-            message: role === 'volunteer'
-                ? 'Registration successful! Your volunteer application has been submitted for review.'
-                : 'Registration successful!',
+            message: 'Registration successful! Please check your email for the OTP verification code.',
+            requiresOTP: true,
+            userId: user._id,
+            email: user.email,
             user: {
                 id: user._id,
                 firstName: user.firstName,
@@ -340,7 +403,8 @@ exports.register = async (req, res) => {
                 phoneNumber: user.phoneNumber,
                 profileImage: user.profileImage || '',
                 isApproved: user.isApproved,
-                applicationStatus: user.applicationStatus
+                applicationStatus: user.applicationStatus,
+                isVerified: false
             },
             token: token
         });

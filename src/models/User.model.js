@@ -1,14 +1,14 @@
+// rescue-response-backend/src/models/User.model.js
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
-// src/models/User.model.js
 const userSchema = new mongoose.Schema({
   firstName: { type: String, required: true },
   lastName: { type: String, required: true },
   email: { type: String, required: true, unique: true },
-  phoneNumber: { type: String, default: '' }, // ✅ Changed: Not required for Google users
-  password: { type: String, required: false }, // ✅ CHANGED: Not required for Google users
-  googleId: { type: String, default: null },   // ✅ ADD THIS
+  phoneNumber: { type: String, default: '' },
+  password: { type: String, required: false },
+  googleId: { type: String, default: null },
   role: {
     type: String,
     enum: ['civilian', 'volunteer', 'responder', 'admin', 'dispatcher'],
@@ -20,6 +20,11 @@ const userSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true },
   isVerified: { type: Boolean, default: false },
 
+  // ✅ OTP VERIFICATION FIELDS
+  otpCode: { type: String },
+  otpExpires: { type: Date },
+  otpAttempts: { type: Number, default: 0 },
+
   // ✅ Volunteer/Application Fields
   yearsOfExperience: { type: String, default: '' },
   certifications: { type: Array, default: [] },
@@ -30,7 +35,6 @@ const userSchema = new mongoose.Schema({
   birthday: { type: Date },
   age: { type: Number },
 
-  // ✅ FIXED: Added `url` so the Base64 string is saved to the database
   files: [{
     name: { type: String },
     type: { type: String },
@@ -38,25 +42,15 @@ const userSchema = new mongoose.Schema({
     url: { type: String }
   }],
 
-  // ✅ CRITICAL FIX: ADD THESE TWO LINES FOR PASSWORD RESET TOKEN
   resetPasswordToken: { type: String },
   resetPasswordExpires: { type: Date }
 
 }, { timestamps: true });
 
-// ============================================
-// ✅ NO PRE-SAVE HOOK - Hash in controller
-// ============================================
-
-// ============================================
-// COMPARE PASSWORD METHOD - Using bcrypt
-// ============================================
 userSchema.methods.comparePassword = function (candidatePassword) {
   return new Promise((resolve, reject) => {
     bcrypt.compare(candidatePassword, this.password, function (err, isMatch) {
-      if (err) {
-        return reject(err);
-      }
+      if (err) return reject(err);
       resolve(isMatch);
     });
   });
