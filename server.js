@@ -159,18 +159,25 @@ app.use(helmet({
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
-  'http://localhost:5000',
   'http://127.0.0.1:5173',
   'http://127.0.0.1:3000',
-  'http://192.168.1.36:5173',
   'https://sta-rosa-nueva-ecija-emergency-response.vercel.app',
   'https://rescuesantarosagov.live',
-  'https://www.rescuesantarosagov.live'
+  'https://www.rescuesantarosagov.live',
+  'https://api.rescuesantarosagov.live'
 ];
 
-
 app.use(cors({
-  origin: true,
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log('❌ CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
