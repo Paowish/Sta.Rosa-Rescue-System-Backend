@@ -302,7 +302,7 @@ router.post('/google', authLimiter, async (req, res) => {
         else if (credential) {
             const ticket = await client.verifyIdToken({
                 idToken: credential,
-                audience: process.env.GOOGLE_CLIENT_ID,
+                // ❌ REMOVE audience parameter
             });
             const payload = ticket.getPayload();
             email = payload.email;
