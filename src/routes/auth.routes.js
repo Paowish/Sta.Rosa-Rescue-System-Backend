@@ -265,14 +265,54 @@ router.post('/register', registrationUpload.any(), register);
 router.post('/login', authLimiter, validateLogin, login);
 
 router.post('/google', authLimiter, async (req, res) => {
-    const { token } = req.body;
+    const { token, credential, access_token } = req.body;
+
     try {
-        const ticket = await client.verifyIdToken({
-            idToken: token,
-            audience: process.env.GOOGLE_CLIENT_ID,
-        });
-        const payload = ticket.getPayload();
-        const { sub, email, given_name, family_name, picture } = payload;
+        let email, given_name, family_name, picture, sub;
+
+        // ✅ Handle access_token from useGoogleLogin (NEW)
+        if (access_token) {
+            const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                headers: {
+                    Authorization: `Bearer ${access_token}`
+                }
+            });
+            const userInfo = await response.json();
+            email = userInfo.email;
+            given_name = userInfo.given_name;
+            family_name = userInfo.family_name;
+            picture = userInfo.picture;
+            sub = userInfo.sub;
+        }
+        // ✅ Handle credential from GoogleLogin component (OLD)
+        else if (credential) {
+            const ticket = await client.verifyIdToken({
+                idToken: credential,
+                audience: process.env.GOOGLE_CLIENT_ID,
+            });
+            const payload = ticket.getPayload();
+            email = payload.email;
+            given_name = payload.given_name;
+            family_name = payload.family_name;
+            picture = payload.picture;
+            sub = payload.sub;
+        }
+        // ✅ Handle token from GoogleLogin component (OLD)
+        else if (token) {
+            const ticket = await client.verifyIdToken({
+                idToken: token,
+                audience: process.env.GOOGLE_CLIENT_ID,
+            });
+            const payload = ticket.getPayload();
+            email = payload.email;
+            given_name = payload.given_name;
+            family_name = payload.family_name;
+            picture = payload.picture;
+            sub = payload.sub;
+        }
+        else {
+            return res.status(400).json({ success: false, message: 'No token provided' });
+        }
 
         let user = await User.findOne({ email: email });
         if (!user) {
