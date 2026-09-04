@@ -1115,33 +1115,98 @@ app.delete('/api/incidents/:id/volunteer/:volunteerId', protect, async (req, res
 
 app.get('/api/volunteers/available', protect, async (req, res) => {
   try {
-    // ✅ Get all team member IDs so we can EXCLUDE them
     const allTeams = await Team.find({}).select('members');
     const teamMemberIds = allTeams.flatMap(team => team.members.map(member => member.toString()));
 
-    // ✅ ONLY get volunteers who are NOT in any team
+    // ✅ ONLY get volunteers who are NOT in any team AND ARE ON DUTY
     const volunteers = await User.find({
       role: 'volunteer',
       isActive: true,
       isApproved: true,
-      _id: { $nin: teamMemberIds }  // ✅ EXCLUDE team members!
+      isOnDuty: true,  // ✅ ADD THIS!
+      _id: { $nin: teamMemberIds }
     }).select('firstName lastName email phoneNumber profileImage');
 
-    console.log('🎯 Available volunteers (non-team members):', volunteers.length);
-
-    res.json({
-      success: true,
-      data: volunteers
-    });
+    res.json({ success: true, data: volunteers });
   } catch (error) {
     console.error('Error fetching volunteers:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
+// ✅ UPDATE VOLUNTEER OFF DUTY STATUS
+app.put('/api/volunteer/off-duty', protect, async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      {
+        isOnDuty: false,
+        availabilityStatus: 'off-duty'
+      },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // ✅ Notify admin panel via socket
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('volunteer_status_update', {
+        volunteerId: user._id,
+        status: 'off-duty',
+        timestamp: new Date()
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'You are now off duty',
+      data: user
+    });
+  } catch (error) {
+    console.error('❌ Off duty error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ✅ UPDATE VOLUNTEER ON DUTY STATUS
+app.put('/api/volunteer/on-duty', protect, async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      {
+        isOnDuty: true,
+        availabilityStatus: 'on-duty'
+      },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // ✅ Notify admin panel via socket
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('volunteer_status_update', {
+        volunteerId: user._id,
+        status: 'on-duty',
+        timestamp: new Date()
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'You are now on duty',
+      data: user
+    });
+  } catch (error) {
+    console.error('❌ On duty error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 // ✅ PUBLIC STATS ENDPOINT (No auth required)
 app.get('/api/public/stats', async (req, res) => {
   try {

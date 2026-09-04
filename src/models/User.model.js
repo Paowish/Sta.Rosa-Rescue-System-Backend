@@ -43,7 +43,9 @@ const userSchema = new mongoose.Schema({
   }],
 
   resetPasswordToken: { type: String },
-  resetPasswordExpires: { type: Date }
+  resetPasswordExpires: { type: Date },
+  isOnDuty: { type: Boolean, default: true },
+  availabilityStatus: { type: String, default: 'on-duty' }
 
 }, { timestamps: true });
 
