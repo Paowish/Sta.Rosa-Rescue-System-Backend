@@ -264,7 +264,7 @@ router.post('/register', registrationUpload.any(), register);
 
 router.post('/login', authLimiter, validateLogin, login);
 
-router.post('/google', authLimiter, async (req, res) => {
+router.post('/google', async (req, res) => {
     const { token, credential, access_token } = req.body;
 
     try {
