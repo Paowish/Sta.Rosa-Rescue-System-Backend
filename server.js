@@ -23,19 +23,47 @@ const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 cloudinary.config({
-  cloud_name: 'nvvaydmz',
-  api_key: '158414443953793',
-  api_secret: 'vC7Bmv3Qn31dazyOiB1lCTqZ7bo'
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
 const app = express();
+
+// CORS must be registered before rate limiting, authentication, and all routes.
+// Requests containing an Authorization header trigger a browser OPTIONS preflight.
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+  'https://sta-rosa-nueva-ecija-emergency-response.vercel.app',
+  'https://rescuesantarosagov.live',
+  'https://www.rescuesantarosagov.live'
+].filter(Boolean);
+
+const corsOptions = {
+  origin(origin, callback) {
+    // Allow server-to-server tools and clients without an Origin header.
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`Origin ${origin} is not allowed by CORS`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  optionsSuccessStatus: 204
+};
+
+app.use(cors(corsOptions));
 
 const VolunteerApplication = require('./src/models/VolunteerApplication.model');
 const Incident = require('./src/models/Incident.model');
 const Notification = require('./src/models/Notification.model');
 const volunteerRoutes = require('./src/routes/volunteer.routes');
-
-app.use('/api/volunteers', volunteerRoutes);
 
 app.set('trust proxy', 1);
 
@@ -173,32 +201,6 @@ app.use(helmet({
   contentSecurityPolicy: false
 }));
 
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:3000',
-  'https://sta-rosa-nueva-ecija-emergency-response.vercel.app',
-  'https://rescuesantarosagov.live',
-  'https://www.rescuesantarosagov.live',
-  'https://api.rescuesantarosagov.live'
-];
-
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log('❌ CORS blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -206,9 +208,29 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(noSqlSanitizer);
 app.use(xssSanitizer);
 
-// ✅ TEMPORARY HARDCODED FIX FOR RENDER
-// ✅ HARDCODED FIX (No directConnection)
-const MONGODB_URI = 'mongodb+srv://caruniapaolovince_db_user:d6aq4TWv2V7LxEpw@cluster0.y4p1ld4.mongodb.net/rescue-response-system?retryWrites=true&w=majority&appName=Cluster0';
+// Mount routers only after global middleware, especially CORS and body parsing.
+app.use('/api/volunteers', volunteerRoutes);
+
+const MONGODB_URI = process.env.MONGODB_URI;
+const JWT_SECRET = process.env.JWT_SECRET;
+
+const requiredEnvironmentVariables = [
+  'MONGODB_URI',
+  'JWT_SECRET',
+  'CLOUDINARY_CLOUD_NAME',
+  'CLOUDINARY_API_KEY',
+  'CLOUDINARY_API_SECRET'
+];
+
+const missingEnvironmentVariables = requiredEnvironmentVariables.filter(
+  (name) => !process.env[name]
+);
+
+if (missingEnvironmentVariables.length > 0) {
+  throw new Error(
+    `Missing required environment variables: ${missingEnvironmentVariables.join(', ')}`
+  );
+}
 
 mongoose.connect(MONGODB_URI)
   .then(() => console.log('✅ MongoDB connected successfully'))
@@ -260,7 +282,7 @@ async function createNotification(recipientId, type, title, message, data = {}) 
 }
 
 const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET || 'mysecretkey', { expiresIn: '7d' });
+  return jwt.sign({ id }, JWT_SECRET, { expiresIn: '7d' });
 };
 
 const protect = async (req, res, next) => {
@@ -269,7 +291,7 @@ const protect = async (req, res, next) => {
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
     try {
       token = req.headers.authorization.split(' ')[1];
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'mysecretkey');
+      const decoded = jwt.verify(token, JWT_SECRET);
       req.user = await User.findById(decoded.id).select('-password');
 
       if (!req.user) {
@@ -672,7 +694,7 @@ app.post('/api/incidents', incidentUpload.single('photo'), async (req, res) => {
 
     if (token) {
       try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'mysecretkey');
+        const decoded = jwt.verify(token, JWT_SECRET);
         user = await User.findById(decoded.id).select('-password');
       } catch (e) { }
     }
@@ -1113,19 +1135,19 @@ app.delete('/api/incidents/:id/volunteer/:volunteerId', protect, async (req, res
   }
 });
 
+// ✅ The actual endpoint
 app.get('/api/volunteers/available', protect, async (req, res) => {
   try {
-    const allTeams = await Team.find({}).select('members');
-    const teamMemberIds = allTeams.flatMap(team => team.members.map(member => member.toString()));
-
-    // ✅ ONLY get volunteers who are NOT in any team AND ARE ON DUTY
+    // ✅ Show ALL volunteers who are on duty (or don't have the field set)
     const volunteers = await User.find({
       role: 'volunteer',
       isActive: true,
       isApproved: true,
-      isOnDuty: true,  // ✅ ADD THIS!
-      _id: { $nin: teamMemberIds }
-    }).select('firstName lastName email phoneNumber profileImage');
+      $or: [
+        { isOnDuty: true },
+        { isOnDuty: { $exists: false } }  // ✅ Include users without isOnDuty field
+      ]
+    }).select('firstName lastName email phoneNumber profileImage role certifications address1 address2 availabilityStatus isOnDuty yearsOfExperience');
 
     res.json({ success: true, data: volunteers });
   } catch (error) {
@@ -1133,6 +1155,7 @@ app.get('/api/volunteers/available', protect, async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
 
 // ✅ UPDATE VOLUNTEER OFF DUTY STATUS
 app.put('/api/volunteer/off-duty', protect, async (req, res) => {
@@ -1248,7 +1271,7 @@ app.get('/api/incidents', async (req, res) => {
 
     if (token) {
       try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'mysecretkey');
+        const decoded = jwt.verify(token, JWT_SECRET);
         user = await User.findById(decoded.id).select('-password');
       } catch (e) { /* Ignore invalid tokens */ }
     }
