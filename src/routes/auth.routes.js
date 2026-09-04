@@ -272,12 +272,26 @@ router.post('/google', authLimiter, async (req, res) => {
 
         // ✅ Handle access_token from useGoogleLogin (NEW)
         if (access_token) {
+            console.log('🔍 Handling access_token...');
+
+            // Fetch user info from Google API
             const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
                 headers: {
                     Authorization: `Bearer ${access_token}`
                 }
             });
+
+            if (!response.ok) {
+                console.error('❌ Google API error:', response.status, response.statusText);
+                return res.status(401).json({
+                    success: false,
+                    message: 'Invalid Google access token'
+                });
+            }
+
             const userInfo = await response.json();
+            console.log('✅ User info from Google:', userInfo.email);
+
             email = userInfo.email;
             given_name = userInfo.given_name;
             family_name = userInfo.family_name;
