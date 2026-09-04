@@ -46,14 +46,31 @@ app.use(rateLimit({
   validate: { trustProxy: true }
 }));
 
-// ✅ VALIDATE EMAIL ADDRESS (Prevents spam/bounce emails)
 const isValidEmail = (email) => {
   if (!email || typeof email !== 'string') return false;
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) return false;
+
+  // ✅ BLOCK OLD @volunteer.com EMAILS (Causing bounces)
+  const blockedEmails = [
+    'mark.chavez@volunteer.com', 'juan.delacruz@volunteer.com', 'ramon.santos@volunteer.com',
+    'miguel.reyes@volunteer.com', 'andres.gomez@volunteer.com', 'pedro.lopez@volunteer.com',
+    'james.reyes@volunteer.com', 'mark.cruz@volunteer.com', 'ramon.mendoza@volunteer.com',
+    'albert.santos@volunteer.com', 'philip.garcia@volunteer.com', 'luz.torres@volunteer.com',
+    'jose.rizal@volunteer.com', 'manuel.delacruz@volunteer.com', 'elena.gomez@volunteer.com',
+    'carlos.mendoza@volunteer.com', 'roberto.flores@volunteer.com', 'sofia.ramos@volunteer.com',
+    'maria.santos@volunteer.com', 'ana.reyes@volunteer.com', 'luz.gomez@volunteer.com',
+    'diego.martinez@volunteer.com', 'carla.torres@volunteer.com', 'paolo.vince@volunteer.com'
+  ];
+
+  if (blockedEmails.includes(email.toLowerCase())) {
+    return false; // ❌ Block old @volunteer.com emails
+  }
+
   const fakeDomains = ['volunteer.com', 'example.com', 'test.com', 'fake.com', 'mock.com', 'sample.com', 'demo.com'];
   const domain = email.split('@')[1].toLowerCase();
   if (fakeDomains.includes(domain)) return false;
+
   return true;
 };
 
@@ -784,7 +801,11 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
 
     // ✅ CHECK IF DISPATCHING A TEAM
     // ✅ ALWAYS treat as team dispatch if there are 6+ volunteerIds (teams have 6 members)
-    const isTeamDispatch = !!teamName || req.body.dispatchType === 'team' || volunteerIds.length >= 6;
+    // ✅ FIX: Prioritize dispatchType
+    const isTeamDispatch =
+      req.body.dispatchType === 'team' ||
+      (!!teamName && req.body.dispatchType !== 'volunteers') ||
+      (volunteerIds.length >= 6 && req.body.dispatchType !== 'volunteers');
     console.log('🎯 [SERVER] isTeamDispatch:', isTeamDispatch);
 
 
