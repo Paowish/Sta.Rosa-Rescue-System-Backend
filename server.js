@@ -1281,16 +1281,28 @@ app.get('/api/incidents', async (req, res) => {
       const userRole = user.role;
 
       if (userRole === 'civilian') {
-        incidents = await Incident.find({ reportedBy: userId }).sort({ createdAt: -1 });
+        incidents = await Incident.find({ reportedBy: userId })
+          .populate('reportedBy', 'firstName lastName email phoneNumber')
+          .populate('assignedTo.responder', 'firstName lastName email phoneNumber')  // ✅ ADD THIS!
+          .sort({ createdAt: -1 });
       }
       else if (userRole === 'volunteer') {
-        incidents = await Incident.find({ 'assignedTo.responder': userId }).sort({ createdAt: -1 });
+        incidents = await Incident.find({ 'assignedTo.responder': userId })
+          .populate('reportedBy', 'firstName lastName email phoneNumber')
+          .populate('assignedTo.responder', 'firstName lastName email phoneNumber')  // ✅ ADD THIS!
+          .sort({ createdAt: -1 });
       }
       else if (['admin', 'dispatcher', 'responder'].includes(userRole)) {
-        incidents = await Incident.find({}).sort({ createdAt: -1 });
+        incidents = await Incident.find({})
+          .populate('reportedBy', 'firstName lastName email phoneNumber')
+          .populate('assignedTo.responder', 'firstName lastName email phoneNumber')  // ✅ ADD THIS!
+          .sort({ createdAt: -1 });
       }
     } else {
-      incidents = await Incident.find({}).sort({ createdAt: -1 });
+      incidents = await Incident.find({})
+        .populate('reportedBy', 'firstName lastName email phoneNumber')
+        .populate('assignedTo.responder', 'firstName lastName email phoneNumber')  // ✅ ADD THIS!
+        .sort({ createdAt: -1 });
     }
 
     res.json({ success: true, data: incidents });
@@ -1340,7 +1352,8 @@ app.get('/api/incidents/volunteer/:volunteerId', protect, async (req, res) => {
 app.get('/api/incidents/:id', protect, async (req, res) => {
   try {
     const incident = await Incident.findById(req.params.id)
-      .populate('reportedBy', 'firstName lastName email phoneNumber');
+      .populate('reportedBy', 'firstName lastName email phoneNumber')
+      .populate('assignedTo.responder', 'firstName lastName email phoneNumber');  // ✅ ADD THIS!
 
     if (!incident) {
       return res.status(404).json({ success: false, message: 'Incident not found' });
