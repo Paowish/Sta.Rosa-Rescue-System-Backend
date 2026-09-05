@@ -233,7 +233,7 @@ if (missingEnvironmentVariables.length > 0) {
 }
 
 mongoose.connect(MONGODB_URI)
-  .then(() => console.log('✅ MongoDB connected successfully'))
+  .then(() => console.log('MongoDB connected successfully'))
   .catch(err => console.error('❌ MongoDB error:', err.message));
 
 const User = require('./src/models/User.model');
@@ -2251,7 +2251,7 @@ app.get('/api/admin/debug-roles', protect, async (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🚀 Server running on:
+  console.log(`\n Server running on:
    - http://localhost:${PORT}
    - http://192.168.1.36:${PORT}`);
 });
