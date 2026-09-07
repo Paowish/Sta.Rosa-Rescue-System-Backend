@@ -239,7 +239,6 @@ mongoose.connect(MONGODB_URI)
 const User = require('./src/models/User.model');
 const authRoutes = require('./src/routes/auth.routes');
 
-// ✅ DEFINE THE TEAM MODEL HERE
 const teamSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true },
   role: { type: String, required: true },
