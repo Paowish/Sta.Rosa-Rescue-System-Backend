@@ -16,7 +16,7 @@ require('dotenv').config();
 
 const dns = require('dns');
 if (dns.setDefaultResultOrder) {
-    dns.setDefaultResultOrder('ipv4first');
+  dns.setDefaultResultOrder('ipv4first');
 }
 dns.setServers(['8.8.8.8', '8.8.4.4']);
 
@@ -933,13 +933,13 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
 
         // ✅ ONLY SEND EMAIL IF CIVILIAN EMAIL IS VALID
         if (civilian.email && isValidEmail(civilian.email)) {
-        try {
+          try {
             const { sendEmail: sendBrevoEmail } = require('./src/services/brevoEmail.service');
             await sendBrevoEmail(
-                civilian.email,
-                civilian.firstName,
-                `✅ Dispatch Update: ${incident.incidentId}`,
-                `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
+              civilian.email,
+              civilian.firstName,
+              `✅ Dispatch Update: ${incident.incidentId}`,
+              `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
                     <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
                       <h1 style="margin: 0;">✅ Dispatch Update</h1>
                       <p>${isTeamDispatch ? 'A rescue team has been dispatched to your incident.' : 'A volunteer has been dispatched to your incident.'}</p>
@@ -956,9 +956,9 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
                   </div>`
             );
             logEmail('CIVILIAN', civilian.email);
-        } catch (emailError) {
-          console.error(`❌ Failed to send email to ${civilian.email}:`, emailError.message);
-        }
+          } catch (emailError) {
+            console.error(`❌ Failed to send email to ${civilian.email}:`, emailError.message);
+          }
         } else {
           logEmail('CIVILIAN', civilian.email, false);
         }
@@ -1057,12 +1057,12 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
       // ✅ ONLY SEND EMAIL IF CIVILIAN EMAIL IS VALID
       if (civilian.email && isValidEmail(civilian.email)) {
         try {
-            const { sendEmail: sendBrevoEmail } = require('./src/services/brevoEmail.service');
-            await sendBrevoEmail(
-                civilian.email,
-                civilian.firstName,
-                `✅ Dispatch Update: ${incident.incidentId}`,
-                `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
+          const { sendEmail: sendBrevoEmail } = require('./src/services/brevoEmail.service');
+          await sendBrevoEmail(
+            civilian.email,
+            civilian.firstName,
+            `✅ Dispatch Update: ${incident.incidentId}`,
+            `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
                     <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
                       <h1 style="margin: 0;">✅ Dispatch Update</h1>
                       <p>A volunteer has been dispatched to your incident.</p>
@@ -1077,8 +1077,8 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
                       <p><strong>Location:</strong> ${incident.location.address}</p>
                     </div>
                   </div>`
-            );
-            logEmail('CIVILIAN', civilian.email);
+          );
+          logEmail('CIVILIAN', civilian.email);
         } catch (emailError) {
           console.error(`❌ Failed to send email to ${civilian.email}:`, emailError.message);
         }
@@ -1929,6 +1929,103 @@ app.get('/api/admin/export-users', protect, async (req, res) => {
 
   } catch (error) {
     console.error('❌ Export error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Export incidents to Excel with filters (option, status, barangay, type)
+app.get('/api/incidents/export', protect, async (req, res) => {
+  try {
+    const { option, status, barangay, type } = req.query;
+
+    console.log('📊 Export request:', { option, status, barangay, type });
+
+    // Build dynamic filter
+    const filter = {};
+
+    // Status filter (skip if "all")
+    if (status && status !== 'all') {
+      filter.status = status;
+    }
+
+    // Barangay filter (skip if "all")
+    if (barangay && barangay !== 'all') {
+      filter['location.barangay'] = { $regex: new RegExp(`^${barangay}$`, 'i') };
+    }
+
+    // Type filter (skip if "all")
+    if (type && type !== 'all') {
+      filter.type = { $regex: new RegExp(`^${type}$`, 'i') };
+    }
+
+    // Active/Inactive filter (from option)
+    if (option === 'active') {
+      filter.status = { $in: ['Pending', 'Dispatched', 'Active', 'En Route', 'On Scene'] };
+    } else if (option === 'inactive') {
+      filter.status = { $in: ['Resolved', 'Closed', 'Solved'] };
+    }
+
+    console.log('📊 Applied filter:', JSON.stringify(filter));
+
+    // Fetch incidents with populations
+    const incidents = await Incident.find(filter)
+      .populate('reportedBy', 'firstName lastName email phoneNumber')
+      .populate('assignedTo.responder', 'firstName lastName email phoneNumber')
+      .sort({ createdAt: -1 });
+
+    console.log(`📊 Found ${incidents.length} incidents matching filter`);
+
+    // Format data for Excel
+    const excelData = incidents.map(inc => ({
+      'Incident ID': inc.incidentId || 'N/A',
+      'Type': inc.type || 'N/A',
+      'Barangay': inc.location?.barangay || 'N/A',
+      'Location': inc.location?.address || 'N/A',
+      'Reported Date': inc.reportedAt
+        ? new Date(inc.reportedAt).toLocaleDateString()
+        : (inc.createdAt ? new Date(inc.createdAt).toLocaleDateString() : 'N/A'),
+      'Reported Time': inc.reportedAt
+        ? new Date(inc.reportedAt).toLocaleTimeString()
+        : 'N/A',
+      'Resolved Date': inc.resolvedAt ? new Date(inc.resolvedAt).toLocaleDateString() : '-',
+      'Resolved Time': inc.resolvedAt ? new Date(inc.resolvedAt).toLocaleTimeString() : '-',
+      'Status': inc.status || 'N/A',
+      'Assigned Team': inc.teamName || 'Unassigned',
+      'Severity': inc.severity || 'Medium',
+      'Victims Affected': inc.victimsAffected || 0,
+      'Reporter Name': inc.reporterName || inc.reportedBy?.firstName
+        ? `${inc.reportedBy?.firstName || ''} ${inc.reportedBy?.lastName || ''}`.trim()
+        : 'Anonymous',
+      'Reporter Number': inc.reporterNumber || 'N/A',
+      'Description': inc.description || 'N/A'
+    }));
+
+    // Create Excel workbook
+    const XLSX = require('xlsx');
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(excelData);
+
+    // Column widths
+    ws['!cols'] = [
+      { wch: 25 }, { wch: 20 }, { wch: 15 }, { wch: 40 },
+      { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+      { wch: 12 }, { wch: 20 }, { wch: 10 }, { wch: 8 },
+      { wch: 20 }, { wch: 15 }, { wch: 40 }
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Incidents');
+
+    // Generate buffer
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    // Set headers and send
+    const timestamp = new Date().toISOString().split('T')[0];
+    res.setHeader('Content-Disposition', `attachment; filename=incidents_${timestamp}.xlsx`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buffer);
+
+  } catch (error) {
+    console.error('❌ Incident export error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
