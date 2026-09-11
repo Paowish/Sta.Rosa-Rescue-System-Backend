@@ -933,34 +933,32 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
 
         // ✅ ONLY SEND EMAIL IF CIVILIAN EMAIL IS VALID
         if (civilian.email && isValidEmail(civilian.email)) {
-          try {
-            const transporter = nodemailer.createTransport({
-              host: 'smtp.gmail.com', port: 465, secure: true, family: 4, auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }, connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000
-            });
-            await transporter.sendMail({
-              from: `"Rescue System" <${process.env.EMAIL_USER}>`,
-              to: civilian.email,
-              subject: `✅ Dispatch Update: ${incident.incidentId}`,
-              html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
-                        <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
-                          <h1 style="margin: 0;">✅ Dispatch Update</h1>
-                          <p>${isTeamDispatch ? 'A rescue team has been dispatched to your incident.' : 'A volunteer has been dispatched to your incident.'}</p>
-                        </div>
-                        <div style="padding: 20px;">
-                          <p>Dear <strong>${civilian.firstName}</strong>,</p>
-                          <p>${isTeamDispatch ? 'A rescue team is on the way to your reported incident.' : 'A volunteer is on the way to your reported incident.'}</p>
-                          <h3>Incident Details:</h3>
-                          <p><strong>ID:</strong> ${incident.incidentId}</p>
-                          <p><strong>Type:</strong> ${incident.type}</p>
-                          <p><strong>Status:</strong> Dispatched</p>
-                          <p><strong>Location:</strong> ${incident.location.address}</p>
-                        </div>
-                      </div>`
-            });
+        try {
+            const { sendEmail: sendBrevoEmail } = require('./src/services/brevoEmail.service');
+            await sendBrevoEmail(
+                civilian.email,
+                civilian.firstName,
+                `✅ Dispatch Update: ${incident.incidentId}`,
+                `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
+                    <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
+                      <h1 style="margin: 0;">✅ Dispatch Update</h1>
+                      <p>${isTeamDispatch ? 'A rescue team has been dispatched to your incident.' : 'A volunteer has been dispatched to your incident.'}</p>
+                    </div>
+                    <div style="padding: 20px;">
+                      <p>Dear <strong>${civilian.firstName}</strong>,</p>
+                      <p>${isTeamDispatch ? 'A rescue team is on the way to your reported incident.' : 'A volunteer is on the way to your reported incident.'}</p>
+                      <h3>Incident Details:</h3>
+                      <p><strong>ID:</strong> ${incident.incidentId}</p>
+                      <p><strong>Type:</strong> ${incident.type}</p>
+                      <p><strong>Status:</strong> Dispatched</p>
+                      <p><strong>Location:</strong> ${incident.location.address}</p>
+                    </div>
+                  </div>`
+            );
             logEmail('CIVILIAN', civilian.email);
-          } catch (emailError) {
-            console.error(`❌ Failed to send email to ${civilian.email}:`, emailError.message);
-          }
+        } catch (emailError) {
+          console.error(`❌ Failed to send email to ${civilian.email}:`, emailError.message);
+        }
         } else {
           logEmail('CIVILIAN', civilian.email, false);
         }
@@ -1059,30 +1057,28 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
       // ✅ ONLY SEND EMAIL IF CIVILIAN EMAIL IS VALID
       if (civilian.email && isValidEmail(civilian.email)) {
         try {
-          const transporter = nodemailer.createTransport({
-            host: 'smtp.gmail.com', port: 465, secure: true, family: 4, auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }, connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000
-          });
-          await transporter.sendMail({
-            from: `"Rescue System" <${process.env.EMAIL_USER}>`,
-            to: civilian.email,
-            subject: `✅ Dispatch Update: ${incident.incidentId}`,
-            html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
-                        <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
-                          <h1 style="margin: 0;">✅ Dispatch Update</h1>
-                          <p>A volunteer has been dispatched to your incident.</p>
-                        </div>
-                        <div style="padding: 20px;">
-                          <p>Dear <strong>${civilian.firstName}</strong>,</p>
-                          <p>A volunteer is on the way to your reported incident.</p>
-                          <h3>Incident Details:</h3>
-                          <p><strong>ID:</strong> ${incident.incidentId}</p>
-                          <p><strong>Type:</strong> ${incident.type}</p>
-                          <p><strong>Status:</strong> Dispatched</p>
-                          <p><strong>Location:</strong> ${incident.location.address}</p>
-                        </div>
-                      </div>`
-          });
-          logEmail('CIVILIAN', civilian.email);
+            const { sendEmail: sendBrevoEmail } = require('./src/services/brevoEmail.service');
+            await sendBrevoEmail(
+                civilian.email,
+                civilian.firstName,
+                `✅ Dispatch Update: ${incident.incidentId}`,
+                `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
+                    <div style="background-color: #1976d2; color: white; padding: 20px; text-align: center;">
+                      <h1 style="margin: 0;">✅ Dispatch Update</h1>
+                      <p>A volunteer has been dispatched to your incident.</p>
+                    </div>
+                    <div style="padding: 20px;">
+                      <p>Dear <strong>${civilian.firstName}</strong>,</p>
+                      <p>A volunteer is on the way to your reported incident.</p>
+                      <h3>Incident Details:</h3>
+                      <p><strong>ID:</strong> ${incident.incidentId}</p>
+                      <p><strong>Type:</strong> ${incident.type}</p>
+                      <p><strong>Status:</strong> Dispatched</p>
+                      <p><strong>Location:</strong> ${incident.location.address}</p>
+                    </div>
+                  </div>`
+            );
+            logEmail('CIVILIAN', civilian.email);
         } catch (emailError) {
           console.error(`❌ Failed to send email to ${civilian.email}:`, emailError.message);
         }
