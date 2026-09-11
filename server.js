@@ -1868,9 +1868,16 @@ app.get('/api/admin/export-users', protect, async (req, res) => {
     const { type, role } = req.query;
     let filter = {};
 
-    // 1. Apply role filter (CASE-INSENSITIVE MATCH)
+    // ✅ EXCLUDE admin, dispatcher, responder ALWAYS (only volunteers + civilians)
+    filter.role = { $nin: ['admin', 'dispatcher', 'responder'] };
+
+    // ✅ Apply additional role filter if specific role selected
     if (role && role !== 'all') {
-      filter.role = { $regex: new RegExp(`^${role}$`, 'i') }; // ✅ Case-insensitive match
+      if (role === 'volunteer') {
+        filter.role = 'volunteer';
+      } else if (role === 'civilian') {
+        filter.role = 'civilian';
+      }
     }
 
     // 2. Apply status filter based on 'type' (all, active, inactive)
