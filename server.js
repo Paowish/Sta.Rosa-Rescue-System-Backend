@@ -40,16 +40,27 @@ const allowedOrigins = [
   'http://127.0.0.1:3000',
   'https://sta-rosa-nueva-ecija-emergency-response.vercel.app',
   'https://rescuesantarosagov.live',
-  'https://www.rescuesantarosagov.live'
+  'https://www.rescuesantarosagov.live',
+  // ✅ Add your backend's own Render URL
+  'https://sta-rosa-rescue-system-backend-7zbj.onrender.com',
+  // ✅ Also allow Render preview URLs (each deploy gets one)
+  /^https:\/\/sta-rosa-rescue-system-backend.*\.onrender\.com$/
 ].filter(Boolean);
 
 const corsOptions = {
   origin(origin, callback) {
-    // Allow server-to-server tools and clients without an Origin header.
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin) return callback(null, true);
+
+    const isAllowed = allowedOrigins.some(allowed => {
+      if (allowed instanceof RegExp) return allowed.test(origin);
+      return allowed === origin;
+    });
+
+    if (isAllowed) {
       return callback(null, true);
     }
 
+    console.warn(`⚠️ CORS blocked: ${origin}`);
     return callback(new Error(`Origin ${origin} is not allowed by CORS`));
   },
   credentials: true,
@@ -110,7 +121,15 @@ const logEmail = (type, email, success = true) => {
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: ["http://localhost:5173", "http://192.168.1.36:5173", "https://*.ngrok-free.dev"],
+    origin: [
+      "http://localhost:5173",
+      "http://localhost:3000",
+      "http://192.168.1.36:5173",
+      "https://rescuesantarosagov.live",
+      "https://www.rescuesantarosagov.live",
+      "https://sta-rosa-nueva-ecija-emergency-response.vercel.app",
+      "https://sta-rosa-rescue-system-backend-7zbj.onrender.com"
+    ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE"]
   }
