@@ -11,10 +11,14 @@ const socketIo = require('socket.io');
 const { noSqlSanitizer, xssSanitizer } = require('./src/middleware/sanitize.middleware');
 const { sendVolunteerAccepted, sendVolunteerRejected } = require('./src/services/email.service');
 
-const dns = require("dns");
-dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
 require('dotenv').config();
+
+const dns = require('dns');
+if (dns.setDefaultResultOrder) {
+    dns.setDefaultResultOrder('ipv4first');
+}
+dns.setServers(['8.8.8.8', '8.8.4.4']);
 
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -931,8 +935,7 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
         if (civilian.email && isValidEmail(civilian.email)) {
           try {
             const transporter = nodemailer.createTransport({
-              service: 'gmail',
-              auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+              host: 'smtp.gmail.com', port: 465, secure: true, family: 4, auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }, connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000
             });
             await transporter.sendMail({
               from: `"Rescue System" <${process.env.EMAIL_USER}>`,
@@ -1057,8 +1060,7 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
       if (civilian.email && isValidEmail(civilian.email)) {
         try {
           const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+            host: 'smtp.gmail.com', port: 465, secure: true, family: 4, auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }, connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000
           });
           await transporter.sendMail({
             from: `"Rescue System" <${process.env.EMAIL_USER}>`,
