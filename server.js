@@ -1851,7 +1851,6 @@ app.get('/api/admin/all-users', protect, async (req, res) => {
     const allUsers = await User.find({})
       .select('-password -resetPasswordToken -resetPasswordExpires')
       .sort({ createdAt: -1 })
-      .limit(50) // Keep a safe limit
       .lean();
 
     // ✅ FAST: Return just the users
