@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const Notification = require('../models/Notification.model');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
+const { logActivity } = require('../services/systemLog.service');
 
 // CONFIGURE CLOUDINARY (Kept here just in case, but we are bypassing it below)
 const cloudinary = require('cloudinary').v2;
@@ -268,6 +269,13 @@ exports.register = async (req, res) => {
 
         console.log('✅ User created with REAL Base64 files:', user.files.length);
 
+        await logActivity(
+            'OK',
+            'USER_REGISTERED',
+            `New ${user.role} account: ${user.firstName} ${user.lastName} (${user.email})`,
+            user._id
+        );
+
         // ✅ SEND OTP EMAIL
         try {
             // Using Brevo API (same as forgotPassword)
@@ -488,6 +496,7 @@ exports.login = async (req, res) => {
 
         if (!user) {
             console.log(`❌ USER NOT FOUND: "${normalizedEmail}"`);
+            await logActivity('ERROR', 'LOGIN_FAILED', `Failed login attempt for: ${normalizedEmail}`);
             return res.status(401).json({
                 success: false,
                 message: 'Invalid credentials'
@@ -502,6 +511,7 @@ exports.login = async (req, res) => {
 
         if (!isMatch) {
             console.log(`❌ PASSWORD MISMATCH for: ${user.email}`);
+            await logActivity('ERROR', 'LOGIN_FAILED', `Wrong password for: ${user.email}`, user._id);
             return res.status(401).json({
                 success: false,
                 message: 'Invalid credentials'
@@ -559,6 +569,13 @@ exports.login = async (req, res) => {
         // ✅ Update last login
         user.lastLogin = new Date();
         await user.save();
+
+        await logActivity(
+            'INFO',
+            'USER_LOGIN',
+            `${user.firstName} ${user.lastName} (${user.role}) logged in`,
+            user._id
+        );
 
         // ✅ Return user data
         res.json({
@@ -740,6 +757,8 @@ exports.logout = async (req, res) => {
             ipAddress: req.ip,
             userAgent: req.headers['user-agent']
         });
+
+        await logActivity('INFO', 'USER_LOGOUT', `User logged out`, req.user.id);
 
         return res.status(200).json({
             success: true,

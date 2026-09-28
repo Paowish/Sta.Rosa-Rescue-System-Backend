@@ -10,6 +10,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 const { noSqlSanitizer, xssSanitizer } = require('./src/middleware/sanitize.middleware');
 const { sendVolunteerAccepted, sendVolunteerRejected } = require('./src/services/email.service');
+const { logActivity, SystemLog } = require('./src/services/systemLog.service');
 
 
 require('dotenv').config();
@@ -768,6 +769,12 @@ app.post('/api/incidents', incidentUpload.single('photo'), async (req, res) => {
     };
 
     const incident = await Incident.create(incidentData);
+    await logActivity(
+      'INFO',
+      'INCIDENT_REPORTED',
+      `New ${incident.severity} ${incident.type} at ${incident.location.address}`,
+      user ? user._id : null
+    );
 
     if (user) {
       Promise.resolve().then(async () => {
@@ -918,6 +925,13 @@ app.post('/api/incidents/:id/dispatch', protect, async (req, res) => {
     }
 
     await incident.save();
+
+    await logActivity(
+      'OK',
+      'INCIDENT_DISPATCHED',
+      `Incident ${incident.incidentId} (${incident.type}) dispatched ${isTeamDispatch ? 'to ' + (teamName || 'Rescue Team') : 'to ' + volunteerIds.length + ' volunteer(s)'}`,
+      req.user._id
+    );
 
     // ✅ IF DISPATCHING A TEAM - ONLY NOTIFY CIVILIAN (NO EMAILS TO TEAM MEMBERS!)
     if (isTeamDispatch) {
@@ -1413,12 +1427,11 @@ app.put('/api/incidents/:id/resolve', protect, async (req, res) => {
     if (!incident) {
       return res.status(404).json({ success: false, message: 'Incident not found' });
     }
-    await createNotification(
-      incident.reportedBy,
-      'incident_update',
-      'Incident Resolved',
-      `Your incident ${incident.incidentId} has been marked as resolved.`,
-      { incidentId: incident._id, status: 'Resolved' }
+    await logActivity(
+      'OK',
+      'INCIDENT_RESOLVED',
+      `Incident ${incident.incidentId} (${incident.type}) marked as Resolved`,
+      req.user._id
     );
     res.json({ success: true, message: 'Incident resolved successfully', data: incident });
   } catch (error) {
@@ -1666,6 +1679,13 @@ app.put('/api/admin/approve-volunteer/:userId', protect, async (req, res) => {
       logEmail('APPROVE', user.email, false);
     }
 
+    await logActivity(
+      'OK',
+      'VOLUNTEER_APPROVED',
+      `Admin approved volunteer: ${user.firstName} ${user.lastName} (${user.email})`,
+      user._id
+    );
+
     res.json({
       success: true,
       message: 'Volunteer approved successfully',
@@ -1781,6 +1801,13 @@ app.put('/api/admin/reject-volunteer/:userId', protect, async (req, res) => {
     } else {
       logEmail('REJECT', user.email, false);
     }
+
+    await logActivity(
+      'WARNING',
+      'VOLUNTEER_REJECTED',
+      `Admin rejected volunteer: ${user.firstName} ${user.lastName} (${user.email})`,
+      user._id
+    );
 
     res.json({
       success: true,
@@ -2156,20 +2183,12 @@ app.get('/api/admin/settings', protect, async (req, res) => {
   }
 });
 
-// ✅ PURE REAL SYSTEM LOGS ROUTE (NO MOCK DATA, NO SEEDING)
 app.get('/api/admin/system-logs', protect, async (req, res) => {
   try {
-    // ✅ SAFE GLOBAL MODEL DEFINITION (Prevents OverwriteModelError)
-    const SystemLog = mongoose.models.SystemLog || mongoose.model('SystemLog', new mongoose.Schema({
-      timestamp: { type: Date, default: Date.now },
-      type: { type: String, enum: ['INFO', 'OK', 'ERROR', 'WARNING'] },
-      action: String,
-      message: String,
-      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
-    }));
-
-    // Just fetch real logs. If empty, it returns [].
-    const logs = await SystemLog.find().sort({ timestamp: -1 }).limit(50);
+    const logs = await SystemLog.find()
+      .populate('userId', 'firstName lastName email role')
+      .sort({ timestamp: -1 })
+      .limit(100);
 
     res.json({ success: true, data: logs });
   } catch (error) {
@@ -2273,6 +2292,13 @@ app.post('/api/admin/backup-now', protect, async (req, res) => {
     }
 
     // ✅ 6. Send success response to the frontend
+    await logActivity(
+      'OK',
+      'BACKUP_CREATED',
+      `Manual backup created: ${filename}`,
+      req.user._id
+    );
+
     res.json({
       success: true,
       message: 'Backup process completed successfully.'

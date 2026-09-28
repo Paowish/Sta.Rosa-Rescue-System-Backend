@@ -9,6 +9,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User.model');
 const crypto = require('crypto');
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const { logActivity } = require('../services/systemLog.service');
 
 const rateLimit = require('express-rate-limit');
 
@@ -374,6 +375,13 @@ router.post('/google', async (req, res) => {
             { id: user._id },
             process.env.JWT_SECRET || 'mysecretkey',
             { expiresIn: process.env.JWT_EXPIRE || '7d' }
+        );
+
+        await logActivity(
+            'INFO',
+            'USER_LOGIN',
+            `${user.firstName} ${user.lastName} (${user.role}) logged in via Google`,
+            user._id
         );
 
         res.status(200).json({ success: true, token: authToken, user: user });
